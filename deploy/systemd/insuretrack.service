@@ -1,0 +1,33 @@
+[Unit]
+Description=InsureTrack Backend API
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=notify
+notify_access=main
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/insuretrack/backend
+Environment="PATH=/var/www/insuretrack/backend/venv/bin"
+EnvironmentFile=/var/www/insuretrack/backend/.env
+ExecStart=/var/www/insuretrack/backend/venv/bin/gunicorn \
+    --config gunicorn.conf.py \
+    app:create_app()
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s TERM $MAINPID
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+# Security hardening
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/insuretrack/backend/logs
+NoNewPrivileges=true
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
