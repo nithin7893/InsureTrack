@@ -7,13 +7,12 @@ from datetime import timedelta, timezone
 
 import sqlalchemy as sa
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request
+from flask import Flask, current_app, jsonify, request
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_talisman import Talisman
-from flask_wtf.csrf import CSRFProtect
 from flask_sqlalchemy import SQLAlchemy
 from logging.handlers import RotatingFileHandler
 
@@ -24,7 +23,6 @@ from models import db, User, Policy, PolicyCover, Company, Vehicle, Location, Fi
 
 jwt = JWTManager()
 limiter = Limiter(key_func=get_remote_address, in_memory_fallback_enabled=True)
-csrf = CSRFProtect()
 
 # --- Structured Logging ---
 def setup_logging(app):
@@ -79,21 +77,23 @@ def create_app():
     redis_url = os.environ.get('REDIS_URL', '')
     if redis_url:
         app.config['RATELIMIT_STORAGE_URI'] = redis_url
-    limiter.init_app(app)
 
     # --- Database ---
     db_url = os.environ.get('DATABASE_URL', '')
     if not db_url:
         db_path = os.path.join(basedir, 'insurance.db')
         app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+        app.config['_IS_SQLITE'] = True
     elif db_url.startswith('sqlite://'):
         if not os.path.isabs(db_url.replace('sqlite:///', '')):
             db_path = os.path.join(basedir, db_url.replace('sqlite:///', ''))
             app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
         else:
             app.config['SQLALCHEMY_DATABASE_URI'] = db_url
+        app.config['_IS_SQLITE'] = True
     else:
         app.config['SQLALCHEMY_DATABASE_URI'] = db_url
+        app.config['_IS_SQLITE'] = False
         app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
             'pool_size': int(os.environ.get('DB_POOL_SIZE', 10)),
             'pool_recycle': int(os.environ.get('DB_POOL_RECYCLE', 300)),
@@ -148,10 +148,6 @@ def create_app():
 
     # --- Rate Limiting ---
     limiter.init_app(app)
-
-    # --- CSRF (for cookie-based sessions, not JWT API) ---
-    # Enabled but exempted for JWT-protected API routes
-    csrf.init_app(app)
 
     # --- Request Size Limit ---
     app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_CONTENT_LENGTH_MB', 5)) * 1024 * 1024
@@ -233,7 +229,6 @@ def create_app():
         return response
 
     # Disable CSRF for API routes since we use JWT tokens (not cookies)
-    app.config['WTF_CSRF_CHECK_DEFAULT'] = False
 
     db.init_app(app)
     jwt.init_app(app)
@@ -263,8 +258,13 @@ def create_app():
 
     # --- DB Init & Migration ---
     with app.app_context():
-        db.create_all()
-        migrate_schema()
+        if app.config.get('_IS_SQLITE'):
+            # Legacy local-dev bootstrap: create tables directly + in-place backfills.
+            db.create_all()
+            migrate_schema()
+        else:
+            # Production: versioned schema via Alembic migrations.
+            run_migrations()
         cleanup_revoked_tokens()
         if os.environ.get('FLASK_ENV', 'production') != 'production':
             seed_data()
@@ -284,6 +284,32 @@ def create_app():
 
     app.logger.info('InsureTrack application started successfully')
     return app
+
+
+def run_migrations():
+    """Apply Alembic migrations (production/PostgreSQL path).
+
+    Called from inside an app context; the Alembic config is wired to the
+    already-resolved DATABASE_URL so it targets the exact same database.
+    """
+    try:
+        from alembic import command
+        from alembic.config import Config as AlembicConfig
+    except ImportError:
+        raise RuntimeError(
+            'Alembic is required for the PostgreSQL production path. '
+            'Run: pip install -r requirements.txt'
+        )
+
+    cfg = AlembicConfig(os.path.join(basedir, 'alembic.ini'))
+    cfg.set_main_option(
+        'script_location', os.path.join(basedir, 'migrations').replace('\\', '/')
+    )
+    cfg.set_main_option(
+        'sqlalchemy.url', current_app.config['SQLALCHEMY_DATABASE_URI']
+    )
+    command.upgrade(cfg, 'head')
+    current_app.logger.info('Database migrations applied successfully')
 
 
 def migrate_schema():
@@ -319,19 +345,8 @@ def migrate_schema():
                 except Exception as e:
                     logging.getLogger(__name__).warning(f"Migration column {table}.{column}: {e}")
 
-    # Add token table for revoked tokens
-    with db.engine.connect() as conn:
-        try:
-            conn.execute(sa.text("""
-                CREATE TABLE IF NOT EXISTS revoked_tokens (
-                    id SERIAL PRIMARY KEY,
-                    jti VARCHAR(36) NOT NULL UNIQUE,
-                    revoked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """))
-            conn.commit()
-        except Exception as e:
-            logging.getLogger(__name__).info(f"Token table check: {e}")
+    # Post deployment fix: revoked_tokens is created by db.create_all() from the
+    # RevokedToken model — portable across SQLite and PostgreSQL.
 
     # Existing migration logic for location_id, role fixes, etc.
     with db.engine.connect() as conn:
@@ -428,7 +443,8 @@ def migrate_schema():
 
 def cleanup_revoked_tokens():
     from datetime import datetime, timedelta, timezone
-    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    # Column stores naive UTC; compare across dialects consistently.
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30)
     try:
         deleted = RevokedToken.query.filter(RevokedToken.revoked_at < cutoff).delete()
         db.session.commit()
