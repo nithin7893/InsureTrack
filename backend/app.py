@@ -15,6 +15,7 @@ from flask_limiter.util import get_remote_address
 from flask_talisman import Talisman
 from flask_sqlalchemy import SQLAlchemy
 from logging.handlers import RotatingFileHandler
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, '.env'))
@@ -55,6 +56,12 @@ def setup_logging(app):
 
 def create_app():
     app = Flask(__name__)
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app,
+        x_for=1,
+        x_proto=1,
+        x_host=1
+    )
 
     # --- Security: Require all secrets from environment ---
     secret_key = os.environ.get('SECRET_KEY')
@@ -138,7 +145,7 @@ def create_app():
     talisman = Talisman(
         app,
         force_https=os.environ.get('FORCE_HTTPS', 'false').lower() == 'true',
-        strict_transport_security=True,
+        strict_transport_security=False,
         strict_transport_security_max_age=31536000,
         content_security_policy=csp,
         session_cookie_secure=os.environ.get('SESSION_COOKIE_SECURE', 'false').lower() == 'true',
