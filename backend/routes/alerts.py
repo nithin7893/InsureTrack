@@ -22,6 +22,25 @@ def add_years(d, years):
         return d.replace(year=d.year + years, day=last_day)
 
 
+def add_months(d, months):
+    total = d.month - 1 + months
+    year = d.year + total // 12
+    month = total % 12 + 1
+    try:
+        return d.replace(year=year, month=month)
+    except ValueError:
+        last_day = monthrange(year, month)[1]
+        return d.replace(year=year, month=month, day=last_day)
+
+
+PREMIUM_FREQUENCIES = {
+    'Monthly': 1,
+    'Quarterly': 3,
+    'Semi Annual': 6,
+    'Annual': 12,
+}
+
+
 def policy_location_name(user, policy):
     if user.role == 'central_admin' and policy.location_id:
         loc = db.session.get(Location, policy.location_id)
@@ -81,32 +100,30 @@ def compute_alerts(user, days_ahead=90, alert_type=None):
             })
             continue
 
-        max_years = end.year - start.year
-        if max_years < 1:
-            continue
-
         ppt_limited = (
             policy.premium_payment_mode == 'Limited'
             and policy.ppt_term is not None
             and policy.ppt_term > 0
         )
-        limit_years = policy.ppt_term if ppt_limited else max_years
+        ppt_until = add_years(start, policy.ppt_term) if ppt_limited else end
 
-        year = 1
-        while year <= limit_years and year <= max_years:
-            renewal_date = add_years(start, year)
+        freq_months = PREMIUM_FREQUENCIES.get(policy.premium_mode, 12)
 
-            if renewal_date > end:
+        n = 1
+        while True:
+            due = add_months(start, n * freq_months)
+
+            if due > end or due > ppt_until:
                 break
 
-            days_until = (renewal_date - today).days
+            days_until = (due - today).days
 
             if days_until <= GRACE_DAYS:
                 status = 'urgent'
             else:
                 status = 'upcoming'
 
-            if renewal_date >= today and renewal_date <= cutoff:
+            if due >= today and due <= cutoff:
                 alerts.append({
                     'policy_id': policy.id,
                     'customer_name': policy.customer_name,
@@ -115,15 +132,15 @@ def compute_alerts(user, days_ahead=90, alert_type=None):
                     'insurance_type': policy.insurance_type,
                     'company': policy.company,
                     'product': policy.product,
-                    'renewal_date': renewal_date.isoformat(),
+                    'renewal_date': due.isoformat(),
                     'days_until_renewal': days_until,
                     'total_premium': float(policy.total_premium),
                     'status': status,
                     'location': policy_location_name(user, policy),
-                    'year': year,
+                    'year': n,
                 })
 
-            year += 1
+            n += 1
 
     alerts.sort(key=lambda a: a['days_until_renewal'])
 
@@ -233,9 +250,9 @@ def renew_policy(policy_id):
         if not data.get('policy_status'):
             policy.policy_status = 'Renewal'
 
-        if policy.end_date <= date.today():
+        if policy.end_date <= policy.start_date:
             db.session.rollback()
-            return jsonify({'error': 'Renewal end_date must be in the future'}), 400
+            return jsonify({'error': 'Renewal end_date must be after the start_date'}), 400
 
         db.session.add(PolicyHistory(
             policy_id=policy.id,

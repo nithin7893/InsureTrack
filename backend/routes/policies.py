@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, Response, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import Policy, PolicyCover, PolicyRider, Vehicle, User, Location, db
+from models import Policy, PolicyCover, PolicyRider, Vehicle, User, Location, CustomField, db
 from datetime import datetime
 from utils.auth import (
     get_current_user, branch_filter, validate_phone,
@@ -68,6 +68,60 @@ def parse_covers(data):
 
 def covers_to_models(covers):
     return [PolicyCover(**c) for c in covers]
+
+
+def validate_custom_values(values, insurance_type):
+    """Validate configured custom field values.
+
+    Returns {field_id(str): value(str)} and raises ValueError on any invalid
+    or missing required value. Only active fields that apply to the policy's
+    insurance type are considered.
+    """
+    if values is None:
+        values = {}
+    if not isinstance(values, dict):
+        raise ValueError('custom_values must be an object')
+    if not values:
+        result = {}
+    else:
+        fields = CustomField.query.filter_by(is_active=True).all()
+        field_map = {
+            str(f.id): f
+            for f in fields
+            if not f.insurance_type or f.insurance_type == insurance_type
+        }
+        result = {}
+        for field_id, value in values.items():
+            field = field_map.get(str(field_id))
+            if not field:
+                raise ValueError(f'custom_values contains an unknown field')
+            cleaned = str(value or '').strip()
+            if cleaned == '':
+                continue
+            if field.field_type == 'number':
+                try:
+                    cleaned = str(float(cleaned))
+                except (TypeError, ValueError):
+                    raise ValueError(f'{field.label} must be a number')
+            elif field.field_type == 'date':
+                try:
+                    datetime.strptime(cleaned, '%Y-%m-%d')
+                except ValueError:
+                    raise ValueError(f'{field.label} must be a valid date (YYYY-MM-DD)')
+            elif field.field_type == 'select':
+                if cleaned not in (field.options or []):
+                    raise ValueError(f'{field.label} has an invalid option')
+            result[str(field_id)] = cleaned[:500]
+
+    for field in CustomField.query.filter_by(is_active=True).all():
+        if (
+            field.is_required
+            and (not field.insurance_type or field.insurance_type == insurance_type)
+            and str(field.id) not in result
+        ):
+            raise ValueError(f'{field.label} is required')
+
+    return result
 
 
 def apply_policy_payload(policy, data):
@@ -214,6 +268,9 @@ def apply_policy_payload(policy, data):
         policy.policy_status = data['policy_status']
     policy.agent_name = data.get('agent_name', policy.agent_name)
 
+    if 'custom_values' in data:
+        policy.custom_values = validate_custom_values(data.get('custom_values'), policy.insurance_type)
+
     return policy
 
 
@@ -307,6 +364,8 @@ def export_policies():
     output = io.StringIO()
     writer = csv.writer(output)
 
+    custom_fields = CustomField.query.filter_by(is_active=True).order_by(CustomField.id.asc()).all()
+
     writer.writerow([
         'ID', 'Insurance Type', 'Company', 'Category', 'Sub Category', 'Product',
         'Customer Name', 'Primary Phone', 'Alternate Phone', 'Policy Number', 'Policy Term',
@@ -314,14 +373,15 @@ def export_policies():
         'End Date', 'Premium Mode', 'Base Premium', 'Rider Premium',
         'GST', 'Total Premium', 'Policy Status', 'Agent Name',
         'Vehicle Number', 'Vehicle Model', 'Vehicle Year', 'Owner Name',
-        'Covers', 'Created At'
-    ])
+        'Covers', 'Created At',
+    ] + [f.field.label for f in custom_fields])
 
     for p in policies:
         covers = '; '.join(
             f"{c.sub_category} (SI {float(c.sum_insured) if c.sum_insured else 0}, Prem {float(c.premium)})"
             for c in p.covers
         )
+        custom_values = p.custom_values or {}
         writer.writerow([
             p.id, p.insurance_type, p.company, p.category, p.sub_category or '', p.product,
             p.customer_name, p.primary_phone, p.alternate_phone or '', p.policy_number, p.policy_term,
@@ -332,8 +392,8 @@ def export_policies():
             p.vehicle.vehicle_number if p.vehicle else '', p.vehicle.vehicle_model if p.vehicle else '',
             p.vehicle.vehicle_year if p.vehicle else '', p.vehicle.owner_name if p.vehicle else '',
             covers,
-            p.created_at.strftime('%Y-%m-%d %H:%M:%S') if p.created_at else ''
-        ])
+            p.created_at.strftime('%Y-%m-%d %H:%M:%S') if p.created_at else '',
+        ] + [custom_values.get(str(f.id), '') for f in custom_fields])
 
     output.seek(0)
     return Response(
@@ -549,6 +609,12 @@ def create_policy():
                     rider_premium += premium
         policy.rider_premium = rider_premium
         policy.total_premium = float(policy.base_premium) + rider_premium + float(policy.gst)
+
+    try:
+        policy.custom_values = validate_custom_values(data.get('custom_values'), data['insurance_type'])
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
 
     try:
         db.session.add(policy)

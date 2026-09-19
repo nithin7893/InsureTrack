@@ -14,10 +14,11 @@ import { ProductsManagement } from './pages/Products';
 import { FieldMembersManagement } from './pages/FieldMembers';
 import { AlertsPage } from './pages/Alerts';
 import { GeneralRidersPage } from './pages/GeneralRiders';
+import { CustomFields } from './pages/CustomFields';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
-  
+
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -25,17 +26,17 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  
+
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
-  
+
   return <>{children}</>;
 }
 
 function AdminRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
-  
+
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -43,11 +44,29 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  
+
   if (user?.role !== 'central_admin' && user?.role !== 'branch_admin') {
     return <Navigate to="/dashboard" replace />;
   }
-  
+
+  return <>{children}</>;
+}
+
+function CentralAdminRoute({ children }: { children: React.ReactNode }) {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (user?.role !== 'central_admin') {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   return <>{children}</>;
 }
 
@@ -87,6 +106,9 @@ function AppRoutes() {
         } />
         <Route path="general-riders" element={
           <AdminRoute><GeneralRidersPage /></AdminRoute>
+        } />
+        <Route path="custom-fields" element={
+          <CentralAdminRoute><CustomFields /></CentralAdminRoute>
         } />
       </Route>
     </Routes>

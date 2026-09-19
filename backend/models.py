@@ -220,6 +220,7 @@ class Policy(db.Model):
     location = db.Column(db.String(255))
     location_id = db.Column(db.Integer, db.ForeignKey('locations.id', ondelete='SET NULL'), nullable=True, index=True)
     vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id', ondelete='SET NULL'), nullable=True)
+    custom_values = db.Column(db.JSON)
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
 
     vehicle = db.relationship('Vehicle', backref=db.backref('policies', lazy='dynamic'))
@@ -286,6 +287,7 @@ class Policy(db.Model):
             'vehicle': self.vehicle.to_dict() if self.vehicle else None,
             'covers': [c.to_dict() for c in self.covers],
             'riders': [r.to_dict() for r in self.riders],
+            'custom_values': self.custom_values or {},
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
@@ -413,3 +415,37 @@ class RevokedToken(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     jti = db.Column(db.String(36), unique=True, nullable=False, index=True)
     revoked_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+
+
+class CustomField(db.Model):
+    """Admin-configurable input fields shown on the Add/Edit policy screens.
+
+    insurance_type is optional: when set to a concrete type the field only
+    applies to policies of that type; when empty it applies to all policies.
+    field_type is one of text, number, date, select. For 'select' the options
+    column holds the list of allowed values.
+    """
+    __tablename__ = 'custom_fields'
+
+    id = db.Column(db.Integer, primary_key=True)
+    label = db.Column(db.String(255), nullable=False)
+    insurance_type = db.Column(db.String(50))
+    field_type = db.Column(db.String(20), nullable=False, default='text')
+    options = db.Column(db.JSON)
+    is_required = db.Column(db.Boolean, default=False)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+
+    VALID_TYPES = {'text', 'number', 'date', 'select'}
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'label': self.label,
+            'insurance_type': self.insurance_type,
+            'field_type': self.field_type,
+            'options': self.options or [],
+            'is_required': bool(self.is_required),
+            'is_active': bool(self.is_active),
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }

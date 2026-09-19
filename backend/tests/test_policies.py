@@ -133,3 +133,59 @@ def test_policies_list_pagination(client, users):
 def test_export_requires_auth(client):
     resp = client.get('/api/policies/export', headers={'Authorization': 'Bearer bad'})
     assert resp.status_code == 401
+
+
+def test_renew_past_term_creates_history(client, users, app):
+    from models import Policy, db
+
+    headers = auth_header(client, 'agent@test.com', 'Agent@123')
+    payload = valid_life_policy(policy_number='TEST/2023/OLD')
+    payload['start_date'] = '2023-01-01'
+    payload['end_date'] = '2023-12-31'
+    created = client.post('/api/policies', json=payload, headers=headers)
+    assert created.status_code == 201, created.get_json()
+    policy_id = created.get_json()['id']
+
+    resp = client.post(
+        f'/api/alerts/{policy_id}/renew',
+        json={
+            'renewed': True,
+            'start_date': '2024-01-01',
+            'end_date': '2024-12-31',
+            'policy_status': 'Renewal',
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.get_json()
+    body = resp.get_json()
+    assert body['policy']['policy_status'] == 'Renewal'
+    assert body['policy']['start_date'] == '2024-01-01'
+    assert body['policy']['end_date'] == '2024-12-31'
+
+    with app.app_context():
+        policy = db.session.get(Policy, policy_id)
+        history = policy.history.all()
+        assert len(history) == 1
+        assert history[0].action == 'renewed'
+        assert history[0].details['start_date'] == '2023-01-01'
+        assert history[0].details['end_date'] == '2023-12-31'
+
+
+def test_renew_requires_end_after_start(client, users):
+    headers = auth_header(client, 'agent@test.com', 'Agent@123')
+    payload = valid_life_policy(policy_number='TEST/2026/OVRLAP')
+    created = client.post('/api/policies', json=payload, headers=headers)
+    assert created.status_code == 201, created.get_json()
+    policy_id = created.get_json()['id']
+
+    resp = client.post(
+        f'/api/alerts/{policy_id}/renew',
+        json={
+            'renewed': True,
+            'start_date': '2030-01-01',
+            'end_date': '2029-12-31',
+            'policy_status': 'Renewal',
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 400

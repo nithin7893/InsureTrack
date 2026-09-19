@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { User, Policy, PolicyListResponse, PolicyFormData, SummaryData, PremiumByType, MonthlyRevenue, PremiumByCompany, PremiumByMode, AgentPerformance, Company, CompanyFormData, UserFormData, Location, ProductMaster, FieldMember, AlertListResponse, AlertSummary, PolicyHistory } from '../types';
+import type { User, Policy, PolicyListResponse, PolicyFormData, SummaryData, PremiumByType, MonthlyRevenue, PremiumByCompany, PremiumByMode, AgentPerformance, Company, CompanyFormData, UserFormData, Location, ProductMaster, FieldMember, AlertListResponse, AlertSummary, PolicyHistory, CustomField } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -375,6 +375,33 @@ export const generalRiderService = {
   },
   deleteGeneralRider: async (id: number): Promise<void> => {
     await api.delete(`/api/general-riders/${id}`);
+  },
+};
+
+export const customFieldService = {
+  getCustomFields: async (options?: { includeInactive?: boolean; insuranceType?: string }): Promise<CustomField[]> => {
+    const params: any = {};
+    if (options?.includeInactive) params.include_inactive = 'true';
+    if (options?.insuranceType) params.insurance_type = options.insuranceType;
+    const response = await api.get('/api/custom-fields', { params });
+    return response.data;
+  },
+  createCustomField: async (data: {
+    label: string;
+    insurance_type: string | null;
+    field_type: CustomField['field_type'];
+    options?: string[];
+    is_required?: boolean;
+  }): Promise<CustomField> => {
+    const response = await api.post('/api/custom-fields', data);
+    return response.data;
+  },
+  updateCustomField: async (id: number, data: Partial<CustomField>): Promise<CustomField> => {
+    const response = await api.put(`/api/custom-fields/${id}`, data);
+    return response.data;
+  },
+  deleteCustomField: async (id: number): Promise<void> => {
+    await api.delete(`/api/custom-fields/${id}`);
   },
 };
 

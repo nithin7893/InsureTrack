@@ -35,6 +35,17 @@ export interface PolicyCover {
   premium: number;
 }
 
+export interface CustomField {
+  id: number;
+  label: string;
+  insurance_type: string | null;
+  field_type: 'text' | 'number' | 'date' | 'select';
+  options: string[];
+  is_required: boolean;
+  is_active: boolean;
+  created_at?: string;
+}
+
 export interface Policy {
   id: number;
   insurance_type: string;
@@ -76,6 +87,7 @@ export interface Policy {
   location_id?: number;
   vehicle?: Vehicle;
   covers: PolicyCover[];
+  custom_values?: Record<string, string>;
   created_at: string;
 }
 
@@ -120,6 +132,7 @@ export interface PolicyFormData {
   vehicle_year?: number;
   vehicle_model?: string;
   owner_name?: string;
+  custom_values?: Record<string, string>;
 }
 
 export interface PolicyListResponse {

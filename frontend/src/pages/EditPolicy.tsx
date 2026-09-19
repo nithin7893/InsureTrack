@@ -9,8 +9,8 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select } from '../components/ui/select';
-import { policyService, fieldMemberService, alertService, generalRiderService } from '../services/api';
-import type { FieldMember, GeneralRider } from '../types';
+import { policyService, fieldMemberService, alertService, generalRiderService, customFieldService } from '../services/api';
+import type { FieldMember, GeneralRider, CustomField } from '../types';
 
 interface GeneralRiderDraft {
   sum_insured: number;
@@ -195,6 +195,8 @@ export function EditPolicyPage() {
   const [fieldMembers, setFieldMembers] = useState<FieldMember[]>([]);
   const [generalRiders, setGeneralRiders] = useState<GeneralRider[]>([]);
   const [selectedGeneralRiders, setSelectedGeneralRiders] = useState<Record<number, GeneralRiderDraft>>({});
+  const [customFields, setCustomFields] = useState<CustomField[]>([]);
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
   
   const {
     register,
@@ -291,6 +293,13 @@ export function EditPolicyPage() {
         if (policy.location_id) {
           setValue('location_id' as any, policy.location_id);
         }
+        if (policy.custom_values) {
+          const initial: Record<string, string> = {};
+          Object.entries(policy.custom_values).forEach(([k, v]) => {
+            initial[k] = String(v ?? '');
+          });
+          setCustomFieldValues(initial);
+        }
       } catch (error) {
         console.error('Failed to fetch policy:', error);
         setError('Failed to load policy');
@@ -348,6 +357,17 @@ export function EditPolicyPage() {
   }, [insuranceType, category]);
 
   useEffect(() => {
+    if (!insuranceType) {
+      setCustomFields([]);
+      return;
+    }
+    customFieldService
+      .getCustomFields({ insuranceType })
+      .then(setCustomFields)
+      .catch(() => setCustomFields([]));
+  }, [insuranceType]);
+
+  useEffect(() => {
     if (insuranceType === 'General') {
       const total = Object.values(selectedGeneralRiders).reduce((sum, r) => sum + (r.premium || 0), 0);
       setValue('rider_premium', total);
@@ -396,6 +416,20 @@ export function EditPolicyPage() {
             ? (draft.sum_insured * draft.excess_value / 100) 
             : draft.excess_value
         }));
+      }
+      if (customFields.length > 0) {
+        const customValues: Record<string, string> = {};
+        for (const field of customFields) {
+          const value = (customFieldValues[field.id] || '').trim();
+          if (value) {
+            customValues[field.id] = value;
+          } else if (field.is_required) {
+            setError(`${field.label} is required`);
+            setIsLoading(false);
+            return;
+          }
+        }
+        payload.custom_values = customValues;
       }
       if (isRenew) {
         await alertService.renewPolicy(Number(id), { renewed: true, ...payload });
@@ -838,6 +872,38 @@ export function EditPolicyPage() {
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {customFields.length > 0 && (
+                <div className="rounded-lg border border-border p-4 space-y-4">
+                  <Label className="font-medium">Additional Details</Label>
+                  {customFields.map((field) => (
+                    <div key={field.id} className="space-y-2">
+                      <Label>
+                        {field.label}
+                        {field.is_required && <span className="text-destructive"> *</span>}
+                      </Label>
+                      {field.field_type === 'select' ? (
+                        <Select
+                          value={customFieldValues[field.id] || ''}
+                          onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+                        >
+                          <option value="">Select...</option>
+                          {field.options.map((opt) => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </Select>
+                      ) : (
+                        <Input
+                          type={field.field_type === 'number' ? 'number' : field.field_type === 'date' ? 'date' : 'text'}
+                          value={customFieldValues[field.id] || ''}
+                          onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+                          placeholder={`Enter ${field.label.toLowerCase()}`}
+                        />
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
 

@@ -11,7 +11,8 @@ import {
   MapPin,
   Package,
   UserCheck,
-  Bell
+  Bell,
+  FormInput
 } from 'lucide-react';
 import { cn } from '../../utils';
 import { useAuth } from '../../hooks/useAuth';
@@ -34,6 +35,7 @@ const adminItems = [
 
 const centralAdminItems = [
   { path: '/users', label: 'Users', icon: Users },
+  { path: '/custom-fields', label: 'Custom Fields', icon: FormInput },
 ];
 
 export function Sidebar() {

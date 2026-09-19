@@ -20,7 +20,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, '.env'))
 
-from models import db, User, Policy, PolicyCover, Company, Vehicle, Location, FieldMember, RevokedToken, GeneralRider
+from models import db, User, Policy, PolicyCover, Company, Vehicle, Location, FieldMember, RevokedToken, GeneralRider, CustomField
 
 jwt = JWTManager()
 limiter = Limiter(key_func=get_remote_address, in_memory_fallback_enabled=True)
@@ -251,6 +251,7 @@ def create_app():
     from routes.field_members import field_members_bp
     from routes.alerts import alerts_bp
     from routes.general_riders import general_riders_bp
+    from routes.custom_fields import custom_fields_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(policies_bp, url_prefix='/api/policies')
@@ -262,6 +263,7 @@ def create_app():
     app.register_blueprint(field_members_bp, url_prefix='/api/field-members')
     app.register_blueprint(alerts_bp, url_prefix='/api/alerts')
     app.register_blueprint(general_riders_bp, url_prefix='/api/general-riders')
+    app.register_blueprint(custom_fields_bp, url_prefix='/api/custom-fields')
 
     # --- DB Init & Migration ---
     with app.app_context():
@@ -336,6 +338,7 @@ def migrate_schema():
         ('field_members', 'approval_status', 'VARCHAR(20)'),
         ('field_members', 'requested_by', 'INTEGER'),
         ('field_members', 'requested_by_name', 'VARCHAR(255)'),
+        ('policies', 'custom_values', 'JSON'),
     ]
 
     for table, column, col_type in new_columns:
