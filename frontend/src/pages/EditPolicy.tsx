@@ -152,6 +152,8 @@ const LIFE_RIDERS = [
     sub_category: z.string().optional(),
     product: z.string().min(1, 'Product is required'),
     customer_name: z.string().min(1, 'Customer name is required'),
+    primary_phone: z.string().min(10, 'Phone number is required').regex(/^\d{10}$/, 'Enter 10-digit phone number'),
+    alternate_phone: z.string().optional(),
     policy_number: z.string().min(1, 'Policy number is required'),
     policy_term: z.coerce.number().min(1, 'Policy term is required'),
     premium_payment_mode: z.string().min(1, 'Premium payment mode is required'),
@@ -233,6 +235,8 @@ export function EditPolicyPage() {
         setValue('sub_category', policy.sub_category || '');
         setValue('product', policy.product);
         setValue('customer_name', policy.customer_name);
+        setValue('primary_phone', policy.primary_phone);
+        setValue('alternate_phone', policy.alternate_phone || '');
         setValue('policy_number', policy.policy_number);
         setValue('policy_term', policy.policy_term || 1);
         setValue('premium_payment_mode', policy.premium_payment_mode || 'Regular');
@@ -606,6 +610,23 @@ export function EditPolicyPage() {
                 <div className="space-y-2">
                   <Label>Policy Number</Label>
                   <Input {...register('policy_number')} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Primary Phone (Mandatory)</Label>
+                  <Input {...register('primary_phone')} placeholder="10-digit mobile number" maxLength={10} />
+                  {errors.primary_phone && (
+                    <p className="text-sm text-destructive">{errors.primary_phone.message}</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label>Alternate Phone (Optional)</Label>
+                  <Input {...register('alternate_phone')} placeholder="10-digit mobile number" maxLength={10} />
+                  {errors.alternate_phone && (
+                    <p className="text-sm text-destructive">{errors.alternate_phone.message}</p>
+                  )}
                 </div>
               </div>
 
