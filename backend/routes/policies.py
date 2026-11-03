@@ -70,12 +70,33 @@ def covers_to_models(covers):
     return [PolicyCover(**c) for c in covers]
 
 
-def validate_custom_values(values, insurance_type):
+def effective_product_category(insurance_type, product_category, category=''):
+    """Return the product category used to scope custom fields.
+
+    General policies store their primary category (Fire, Motor, ...) rather
+    than a separate product category, so fall back to it.
+    """
+    if product_category:
+        return product_category
+    if insurance_type == 'General':
+        return category or ''
+    return ''
+
+
+def custom_field_applies(field, insurance_type, product_category):
+    if field.insurance_type and field.insurance_type != insurance_type:
+        return False
+    if field.product_category and field.product_category != product_category:
+        return False
+    return True
+
+
+def validate_custom_values(values, insurance_type, product_category=''):
     """Validate configured custom field values.
 
     Returns {field_id(str): value(str)} and raises ValueError on any invalid
     or missing required value. Only active fields that apply to the policy's
-    insurance type are considered.
+    insurance type and product category are considered.
     """
     if values is None:
         values = {}
@@ -88,7 +109,7 @@ def validate_custom_values(values, insurance_type):
         field_map = {
             str(f.id): f
             for f in fields
-            if not f.insurance_type or f.insurance_type == insurance_type
+            if custom_field_applies(f, insurance_type, product_category)
         }
         result = {}
         for field_id, value in values.items():
@@ -116,7 +137,7 @@ def validate_custom_values(values, insurance_type):
     for field in CustomField.query.filter_by(is_active=True).all():
         if (
             field.is_required
-            and (not field.insurance_type or field.insurance_type == insurance_type)
+            and custom_field_applies(field, insurance_type, product_category)
             and str(field.id) not in result
         ):
             raise ValueError(f'{field.label} is required')
@@ -168,6 +189,9 @@ def apply_policy_payload(policy, data):
     policy.company = data.get('company', policy.company)[:100] if data.get('company') else policy.company
     policy.category = data.get('category', policy.category)
     policy.sub_category = data.get('sub_category', policy.sub_category)
+    policy.product_category = (data.get('product_category', policy.product_category) or '')[:100]
+    if policy.insurance_type == 'General' and not policy.product_category:
+        policy.product_category = (policy.category or '')[:100]
     policy.product = data.get('product', policy.product)[:100] if data.get('product') else policy.product
     policy.customer_name = data.get('customer_name', policy.customer_name)[:255]
     policy.primary_phone = data.get('primary_phone', policy.primary_phone)[:20]
@@ -253,14 +277,8 @@ def apply_policy_payload(policy, data):
     rider_premium = sum(float(getattr(policy, field) or 0) for field in RIDER_FIELDS)
     policy.rider_premium = rider_premium
 
-    if policy.insurance_type == 'General':
-        policy.gst = (base_premium + rider_premium) * 0.18
-    elif policy.insurance_type == 'Health' and data.get('product_category') == 'GPA':
-        policy.gst = base_premium * 0.18
-    else:
-        policy.gst = 0
-
-    policy.total_premium = base_premium + rider_premium + policy.gst
+    policy.gst = 0
+    policy.total_premium = base_premium + rider_premium
 
     if 'policy_status' in data:
         if data['policy_status'] not in VALID_STATUSES:
@@ -269,7 +287,9 @@ def apply_policy_payload(policy, data):
     policy.agent_name = data.get('agent_name', policy.agent_name)
 
     if 'custom_values' in data:
-        policy.custom_values = validate_custom_values(data.get('custom_values'), policy.insurance_type)
+        policy.custom_values = validate_custom_values(
+            data.get('custom_values'), policy.insurance_type, policy.product_category
+        )
 
     return policy
 
@@ -502,12 +522,8 @@ def create_policy():
         base_premium = sum(c['premium'] for c in covers)
 
     gst = 0
-    if data['insurance_type'] == 'General':
-        gst = (base_premium + rider_premium) * 0.18
-    elif data['insurance_type'] == 'Health' and data.get('product_category') == 'GPA':
-        gst = base_premium * 0.18
 
-    total_premium = base_premium + rider_premium + gst
+    total_premium = base_premium + rider_premium
 
     premium_payment_mode = data.get('premium_payment_mode', 'Regular')
     if data['insurance_type'] == 'Health':
@@ -541,6 +557,9 @@ def create_policy():
         company=data['company'][:100],
         category=data.get('category', '')[:50] if data.get('category') else '',
         sub_category=data.get('sub_category', '')[:50] if data.get('sub_category') else '',
+        product_category=effective_product_category(
+            data['insurance_type'], data.get('product_category'), data.get('category', '')
+        )[:100],
         product=data['product'][:100],
         customer_name=data['customer_name'][:255],
         primary_phone=data['primary_phone'][:20],
@@ -608,10 +627,16 @@ def create_policy():
                     policy.riders.append(policy_rider)
                     rider_premium += premium
         policy.rider_premium = rider_premium
-        policy.total_premium = float(policy.base_premium) + rider_premium + float(policy.gst)
+        policy.total_premium = float(policy.base_premium) + rider_premium
 
     try:
-        policy.custom_values = validate_custom_values(data.get('custom_values'), data['insurance_type'])
+        policy.custom_values = validate_custom_values(
+            data.get('custom_values'),
+            data['insurance_type'],
+            effective_product_category(
+                data['insurance_type'], data.get('product_category'), data.get('category', '')
+            ),
+        )
     except ValueError as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 400

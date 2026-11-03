@@ -379,16 +379,18 @@ export const generalRiderService = {
 };
 
 export const customFieldService = {
-  getCustomFields: async (options?: { includeInactive?: boolean; insuranceType?: string }): Promise<CustomField[]> => {
+  getCustomFields: async (options?: { includeInactive?: boolean; insuranceType?: string; productCategory?: string }): Promise<CustomField[]> => {
     const params: any = {};
     if (options?.includeInactive) params.include_inactive = 'true';
     if (options?.insuranceType) params.insurance_type = options.insuranceType;
+    if (options?.productCategory) params.product_category = options.productCategory;
     const response = await api.get('/api/custom-fields', { params });
     return response.data;
   },
   createCustomField: async (data: {
     label: string;
     insurance_type: string | null;
+    product_category?: string | null;
     field_type: CustomField['field_type'];
     options?: string[];
     is_required?: boolean;

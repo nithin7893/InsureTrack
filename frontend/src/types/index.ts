@@ -39,6 +39,7 @@ export interface CustomField {
   id: number;
   label: string;
   insurance_type: string | null;
+  product_category: string | null;
   field_type: 'text' | 'number' | 'date' | 'select';
   options: string[];
   is_required: boolean;
@@ -52,6 +53,7 @@ export interface Policy {
   company: string;
   category: string;
   sub_category?: string;
+  product_category?: string;
   product: string;
   customer_name: string;
   primary_phone: string;
@@ -96,6 +98,7 @@ export interface PolicyFormData {
   company: string;
   category: string;
   sub_category?: string;
+  product_category?: string;
   product: string;
   customer_name: string;
   primary_phone: string;

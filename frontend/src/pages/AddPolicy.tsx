@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ChevronRight, ChevronLeft, Check, Package } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Package } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -134,7 +134,7 @@ const LIFE_RIDERS = [
 
 const PREMIUM_MODES = ['Annual', 'Semi Annual', 'Quarterly', 'Monthly'];
 const POLICY_STATUSES = ['Fresh', 'Renewal', 'Other Company Renewal'];
-const POLICY_STATUSES_LIFE = ['Fresh', 'Renewal'];
+const POLICY_STATUSES_LIFE_GENERAL = ['Fresh', 'Renewal'];
 const CUSTOM_OPTION = '__custom__';
 
 const policySchema = z.object({
@@ -273,7 +273,6 @@ export function AddPolicyPage() {
   const category = watch('category');
   const sub_category = watch('sub_category');
   const product_category = watch('product_category');
-  const product = watch('product');
   const premiumPaymentMode = watch('premium_payment_mode');
   const policyTerm = Number(watch('policy_term')) || 1;
   const startDate = watch('start_date');
@@ -283,6 +282,7 @@ export function AddPolicyPage() {
   const effectiveCategory = category === CUSTOM_OPTION ? customCategory : category;
   const effectiveSubCategory = sub_category === CUSTOM_OPTION ? customSubCategory : sub_category;
   const showGeneralProductPicker = insuranceType === 'General' && effectiveCategory && effectiveSubCategory;
+  const customFieldCategory = insuranceType === 'General' ? effectiveCategory : product_category;
 
   const filteredCompanies = companies
     .filter(c => c.insurance_type === insuranceType)
@@ -379,10 +379,10 @@ export function AddPolicyPage() {
       return;
     }
     customFieldService
-      .getCustomFields({ insuranceType })
+      .getCustomFields({ insuranceType, productCategory: customFieldCategory || undefined })
       .then(setCustomFields)
       .catch(() => setCustomFields([]));
-  }, [insuranceType]);
+  }, [insuranceType, customFieldCategory]);
 
   useEffect(() => {
     if (insuranceType === 'General') {
@@ -394,17 +394,7 @@ export function AddPolicyPage() {
     }
   }, [riderValues, selectedGeneralRiders, insuranceType, setValue]);
 
-  const calculateGST = () => {
-    if (insuranceType === 'General') {
-      return (basePremium + riderPremium) * 0.18;
-    }
-    if (insuranceType === 'Health' && product_category === 'GPA') {
-      return basePremium * 0.18;
-    }
-    return 0;
-  };
-
-  const totalPremium = basePremium + riderPremium + calculateGST();
+  const totalPremium = basePremium + riderPremium;
 
   const onSubmit = async (data: PolicyFormData) => {
     setIsLoading(true);
@@ -484,14 +474,21 @@ export function AddPolicyPage() {
         <div className="flex items-center gap-2">
           {steps.map((s, index) => (
             <div key={s.number} className="flex items-center">
-              <div
-                className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-medium transition-all
-                  ${step >= s.number 
-                    ? 'bg-primary text-primary-foreground' 
-                    : 'bg-muted text-muted-foreground'}`}
+              <button
+                type="button"
+                onClick={() => setStep(s.number)}
+                title={s.title}
+                aria-label={`Go to step ${s.number}: ${s.title}`}
+                aria-current={step === s.number ? 'step' : undefined}
+                className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-medium transition-all cursor-pointer
+                  ${step === s.number
+                    ? 'bg-primary text-primary-foreground'
+                    : step > s.number
+                      ? 'bg-primary/60 text-primary-foreground hover:bg-primary'
+                      : 'bg-muted text-muted-foreground hover:bg-muted-foreground/20'}`}
               >
-                {step > s.number ? <Check className="h-5 w-5" /> : s.number}
-              </div>
+                {s.number}
+              </button>
               {index < steps.length - 1 && (
                 <div className={`h-1 w-12 ${step > s.number ? 'bg-primary' : 'bg-muted'}`} />
               )}
@@ -717,13 +714,6 @@ export function AddPolicyPage() {
                       </div>
                     )}
 
-                    {insuranceType === 'General' && product && (
-                      <div className="rounded-lg bg-muted p-4">
-                        <p className="text-sm text-muted-foreground">
-                          ⚠️ This product has 18% GST
-                        </p>
-                      </div>
-                    )}
                   </>
                 )}
 
@@ -824,20 +814,6 @@ export function AddPolicyPage() {
                       </div>
                     )}
 
-                    {insuranceType === 'Health' && product_category === 'GPA' && product && (
-                      <div className="rounded-lg bg-muted p-4">
-                        <p className="text-sm text-muted-foreground">
-                          ⚠️ GPA products have 18% GST
-                        </p>
-                      </div>
-                    )}
-                    {insuranceType === 'Life' && product && (
-                      <div className="rounded-lg bg-muted p-4">
-                        <p className="text-sm text-muted-foreground">
-                          ℹ️ Life insurance products are GST exempt
-                        </p>
-                      </div>
-                    )}
                   </>
                 )}
               </div>
@@ -1036,6 +1012,19 @@ export function AddPolicyPage() {
                   <div className="space-y-2">
                     <Label>Sum Insured (₹)</Label>
                     <Input type="number" {...register('sum_insured')} min="0" placeholder="Enter sum insured" />
+                  </div>
+                ) : insuranceType === 'General' ? (
+                  <div className="space-y-2">
+                    <Label>{effectiveCategory === 'Motor' ? 'IDV value (₹)' : 'Sum Insured (₹)'}</Label>
+                    <Input
+                      type="number"
+                      {...register('sum_assured')}
+                      min="0"
+                      placeholder={effectiveCategory === 'Motor' ? 'Enter IDV value' : 'Enter sum insured'}
+                    />
+                    {errors.sum_assured && (
+                      <p className="text-sm text-destructive">{errors.sum_assured.message}</p>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -1302,7 +1291,7 @@ export function AddPolicyPage() {
                       control={control}
                       render={({ field }) => (
                         <Select {...field} onChange={(e) => field.onChange(e)}>
-                          {(insuranceType === 'Life' ? POLICY_STATUSES_LIFE : POLICY_STATUSES).map((status) => (
+                          {(insuranceType === 'Health' ? POLICY_STATUSES : POLICY_STATUSES_LIFE_GENERAL).map((status) => (
                             <option key={status} value={status}>{status}</option>
                           ))}
                         </Select>
@@ -1351,12 +1340,6 @@ export function AddPolicyPage() {
                       <div className="flex justify-between">
                         <span>Rider Premium:</span>
                         <span>₹{riderPremium.toLocaleString()}</span>
-                      </div>
-                    )}
-                    {(insuranceType === 'General' || (insuranceType === 'Health' && product_category === 'GPA')) && (
-                      <div className="flex justify-between">
-                        <span>GST (18%):</span>
-                        <span>₹{calculateGST().toLocaleString()}</span>
                       </div>
                     )}
                     <div className="flex justify-between font-bold border-t border-border pt-2 mt-2">

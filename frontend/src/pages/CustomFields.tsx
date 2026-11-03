@@ -7,11 +7,13 @@ import { Card } from '../components/ui/card';
 import { Label } from '../components/ui/label';
 import { Select } from '../components/ui/select';
 import { Toast } from '../components/ui/toast';
+import { PRODUCT_CATEGORIES } from '../constants/insurance';
 import type { CustomField } from '../types';
 
 const EMPTY_FORM = {
   label: '',
   insurance_type: '',
+  product_category: '',
   field_type: 'text' as CustomField['field_type'],
   options: '',
   is_required: false,
@@ -45,6 +47,7 @@ export function CustomFields() {
       const payload = {
         label: formData.label,
         insurance_type: formData.insurance_type || null,
+        product_category: formData.product_category || null,
         field_type: formData.field_type,
         is_required: formData.is_required,
         options: formData.field_type === 'select' ? formData.options.split(',').map(o => o.trim()).filter(Boolean) : undefined,
@@ -72,6 +75,7 @@ export function CustomFields() {
     setFormData({
       label: field.label,
       insurance_type: field.insurance_type || '',
+      product_category: field.product_category || '',
       field_type: field.field_type,
       options: (field.options || []).join(', '),
       is_required: field.is_required,
@@ -117,7 +121,8 @@ export function CustomFields() {
           <thead>
             <tr className="border-b text-muted-foreground">
               <th className="pb-2 pr-4">Field</th>
-              <th className="pb-2 pr-4">Applies To</th>
+              <th className="pb-2 pr-4">Insurance Type</th>
+              <th className="pb-2 pr-4">Product Category</th>
               <th className="pb-2 pr-4">Type</th>
               <th className="pb-2 pr-4">Options</th>
               <th className="pb-2 pr-4">Required</th>
@@ -130,6 +135,7 @@ export function CustomFields() {
               <tr key={field.id} className={`border-b ${!field.is_active ? 'text-muted-foreground' : ''}`}>
                 <td className="py-3 pr-4">{field.label}</td>
                 <td className="py-3 pr-4">{field.insurance_type || 'All'}</td>
+                <td className="py-3 pr-4">{field.product_category || 'Complete category'}</td>
                 <td className="py-3 pr-4">{fieldTypeLabel(field.field_type)}</td>
                 <td className="py-3 pr-4">{field.options?.join(', ') || '-'}</td>
                 <td className="py-3 pr-4">{field.is_required ? 'Yes' : 'No'}</td>
@@ -150,7 +156,7 @@ export function CustomFields() {
             ))}
             {fields.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-muted-foreground">
+                <td colSpan={8} className="py-8 text-center text-muted-foreground">
                   <FormInput className="mx-auto mb-2 h-8 w-8" />
                   No custom fields yet. Add one to show extra inputs on the policy screens.
                 </td>
@@ -187,7 +193,7 @@ export function CustomFields() {
                 <Select
                   id="insurance_type"
                   value={formData.insurance_type}
-                  onChange={e => setFormData({ ...formData, insurance_type: e.target.value })}
+                  onChange={e => setFormData({ ...formData, insurance_type: e.target.value, product_category: '' })}
                 >
                   <option value="">All insurance types</option>
                   <option value="Life">Life</option>
@@ -195,6 +201,25 @@ export function CustomFields() {
                   <option value="General">General</option>
                 </Select>
               </div>
+              {formData.insurance_type && (
+                <div>
+                  <Label htmlFor="product_category">Product Category</Label>
+                  <Select
+                    id="product_category"
+                    value={formData.product_category}
+                    onChange={e => setFormData({ ...formData, product_category: e.target.value })}
+                  >
+                    <option value="">For complete category</option>
+                    {(PRODUCT_CATEGORIES[formData.insurance_type] || []).map(category => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </Select>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Choose a product category to show this field only for that category, or leave it as
+                    “For complete category” to show it for every {formData.insurance_type} policy.
+                  </p>
+                </div>
+              )}
               <div>
                 <Label htmlFor="field_type">Field Type</Label>
                 <Select

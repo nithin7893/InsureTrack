@@ -339,6 +339,8 @@ def migrate_schema():
         ('field_members', 'requested_by', 'INTEGER'),
         ('field_members', 'requested_by_name', 'VARCHAR(255)'),
         ('policies', 'custom_values', 'JSON'),
+        ('policies', 'product_category', 'VARCHAR(100)'),
+        ('custom_fields', 'product_category', 'VARCHAR(100)'),
     ]
 
     for table, column, col_type in new_columns:
@@ -579,7 +581,7 @@ def seed_data():
                 primary_phone='9876543212', policy_number='ICICI/2024/003',
                 policy_term=1, start_date=date(2024, 3, 1), end_date=date(2025, 3, 1),
                 premium_mode='Annual', base_premium=50000, rider_premium=0,
-                gst=9000, total_premium=59000, policy_status='Fresh',
+                gst=0, total_premium=50000, policy_status='Fresh',
                 agent_name='John Agent', location='New York', location_id=ny_id
             ),
             Policy(
@@ -588,7 +590,7 @@ def seed_data():
                 primary_phone='9876543213', policy_number='ICICI/MOT/004',
                 policy_term=1, start_date=date(2024, 4, 1), end_date=date(2025, 4, 1),
                 premium_mode='Annual', base_premium=8000, rider_premium=0,
-                gst=1440, total_premium=9440, policy_status='Renewal',
+                gst=0, total_premium=8000, policy_status='Renewal',
                 agent_name='John Agent', location='New York', location_id=ny_id
             ),
             Policy(
@@ -615,7 +617,7 @@ def seed_data():
                 primary_phone='9876543216', policy_number='NEWINDIA/2024/007',
                 policy_term=1, start_date=date(2024, 7, 1), end_date=date(2025, 7, 1),
                 premium_mode='Annual', base_premium=25000, rider_premium=0,
-                gst=4500, total_premium=29500, policy_status='Fresh',
+                gst=0, total_premium=25000, policy_status='Fresh',
                 agent_name='John Agent', location='New York', location_id=ny_id
             ),
             Policy(
@@ -633,7 +635,7 @@ def seed_data():
                 primary_phone='9876543218', policy_number='TATAAIG/2024/009',
                 policy_term=1, start_date=date(2024, 9, 1), end_date=date(2025, 9, 1),
                 premium_mode='Annual', base_premium=12000, rider_premium=0,
-                gst=2160, total_premium=14160, policy_status='Other Company Renewal',
+                gst=0, total_premium=12000, policy_status='Other Company Renewal',
                 agent_name='John Agent', location='New York', location_id=ny_id
             ),
             Policy(

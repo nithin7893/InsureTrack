@@ -10,6 +10,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select } from '../components/ui/select';
 import { policyService, fieldMemberService, alertService, generalRiderService, customFieldService } from '../services/api';
+import { PRODUCT_CATEGORIES } from '../constants/insurance';
 import type { FieldMember, GeneralRider, CustomField } from '../types';
 
 interface GeneralRiderDraft {
@@ -150,6 +151,7 @@ const LIFE_RIDERS = [
     company: z.string().min(1, 'Company is required'),
     category: z.string().optional(),
     sub_category: z.string().optional(),
+    product_category: z.string().optional(),
     product: z.string().min(1, 'Product is required'),
     customer_name: z.string().min(1, 'Customer name is required'),
     primary_phone: z.string().min(10, 'Phone number is required').regex(/^\d{10}$/, 'Enter 10-digit phone number'),
@@ -219,6 +221,8 @@ export function EditPolicyPage() {
   const riderPremium = watch('rider_premium') || 0;
   const startDate = watch('start_date');
   const category = watch('category');
+  const product_category = watch('product_category');
+  const customFieldCategory = insuranceType === 'General' ? category : product_category;
 
   const companies = insuranceType === 'Life' ? LIFE_COMPANIES 
     : insuranceType === 'Health' ? HEALTH_COMPANIES 
@@ -233,6 +237,7 @@ export function EditPolicyPage() {
         setValue('company', policy.company);
         setValue('category', policy.category || '');
         setValue('sub_category', policy.sub_category || '');
+        setValue('product_category', policy.product_category || '');
         setValue('product', policy.product);
         setValue('customer_name', policy.customer_name);
         setValue('primary_phone', policy.primary_phone);
@@ -366,10 +371,10 @@ export function EditPolicyPage() {
       return;
     }
     customFieldService
-      .getCustomFields({ insuranceType })
+      .getCustomFields({ insuranceType, productCategory: customFieldCategory || undefined })
       .then(setCustomFields)
       .catch(() => setCustomFields([]));
-  }, [insuranceType]);
+  }, [insuranceType, customFieldCategory]);
 
   useEffect(() => {
     if (insuranceType === 'General') {
@@ -381,21 +386,19 @@ export function EditPolicyPage() {
     }
   }, [riderValues, selectedGeneralRiders, insuranceType, setValue]);
 
-  const calculateGST = () => {
-    if (insuranceType === 'General') {
-      return (basePremium + riderPremium) * 0.18;
-    }
-    return 0;
-  };
-
-  const totalPremium = basePremium + riderPremium + calculateGST();
+  const totalPremium = basePremium + riderPremium;
 
   const onSubmit = async (data: PolicyFormData) => {
     setIsLoading(true);
     setError('');
     
     try {
-      const payload: any = { ...data };
+      const payload: any = {
+        ...data,
+        product_category: data.insurance_type === 'General'
+          ? (data.category || '')
+          : (data.product_category || ''),
+      };
       if (data.insurance_type === 'Health') {
         payload.sum_insured = data.sum_insured || 0;
         payload.sum_assured = undefined;
@@ -502,7 +505,12 @@ export function EditPolicyPage() {
                     name="insurance_type"
                     control={control}
                     render={({ field }) => (
-                      <Select {...field} onChange={(e) => field.onChange(e)}>
+                      <Select {...field} onChange={(e) => {
+                        field.onChange(e);
+                        setValue('category', '');
+                        setValue('sub_category', '');
+                        setValue('product_category', '');
+                      }}>
                         {INSURANCE_TYPES.map((type) => (
                           <option key={type} value={type}>{type}</option>
                         ))}
@@ -536,6 +544,24 @@ export function EditPolicyPage() {
                     render={({ field }) => (
                       <Select {...field} onChange={(e) => field.onChange(e)}>
                         {LIFE_CATEGORIES.map((cat) => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </Select>
+                    )}
+                  />
+                </div>
+              )}
+
+              {(insuranceType === 'Life' || insuranceType === 'Health') && (
+                <div className="space-y-2">
+                  <Label>Product Category</Label>
+                  <Controller
+                    name="product_category"
+                    control={control}
+                    render={({ field }) => (
+                      <Select {...field} onChange={(e) => field.onChange(e)}>
+                        <option value="">Select Product Category</option>
+                        {(PRODUCT_CATEGORIES[insuranceType] || []).map((cat) => (
                           <option key={cat} value={cat}>{cat}</option>
                         ))}
                       </Select>
@@ -687,6 +713,19 @@ export function EditPolicyPage() {
                   <div className="space-y-2">
                     <Label>Sum Insured (₹)</Label>
                     <Input type="number" {...register('sum_insured')} min="0" placeholder="Enter sum insured" />
+                  </div>
+                ) : insuranceType === 'General' ? (
+                  <div className="space-y-2">
+                    <Label>{category === 'Motor' ? 'IDV value (₹)' : 'Sum Insured (₹)'}</Label>
+                    <Input
+                      type="number"
+                      {...register('sum_assured')}
+                      min="0"
+                      placeholder={category === 'Motor' ? 'Enter IDV value' : 'Enter sum insured'}
+                    />
+                    {errors.sum_assured && (
+                      <p className="text-sm text-destructive">{errors.sum_assured.message}</p>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -994,12 +1033,6 @@ export function EditPolicyPage() {
                     <div className="flex justify-between">
                       <span>Rider Premium:</span>
                       <span>₹{riderPremium.toLocaleString()}</span>
-                    </div>
-                  )}
-                  {insuranceType === 'General' && (
-                    <div className="flex justify-between">
-                      <span>GST (18%):</span>
-                      <span>₹{calculateGST().toLocaleString()}</span>
                     </div>
                   )}
                   <div className="flex justify-between font-bold border-t border-border pt-2 mt-2">

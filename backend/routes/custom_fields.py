@@ -9,6 +9,38 @@ logger = logging.getLogger(__name__)
 
 VALID_INSURANCE_TYPES = frozenset({'Life', 'Health', 'General'})
 
+# Product categories available inside each insurance type. These mirror the
+# "Product Category" choices on the Add/Edit Policy screens.
+PRODUCT_CATEGORIES = {
+    'Life': frozenset({
+        'Term Plan', 'Return of Premium', 'Annuity', 'Savings', 'ULIP',
+        'Pension', 'Group Term Life Insurance(GTLI)',
+    }),
+    'Health': frozenset({
+        'Personal Health', 'GMC', 'Travel', 'Personal Accident', 'Topup', 'GPA',
+    }),
+    'General': frozenset({
+        'Engineering', 'Fire', 'Health', 'Liability',
+        'Marine Cargo', 'Marine Hull', 'Miscellaneous', 'Motor',
+    }),
+}
+
+
+def validate_product_category(insurance_type, product_category):
+    """Validate the optional product-category scope of a custom field.
+
+    An empty value means the field applies to the complete insurance type.
+    Returns (cleaned_value, error_message).
+    """
+    if not product_category:
+        return None, None
+    product_category = str(product_category).strip()[:100]
+    if not insurance_type:
+        return None, 'insurance_type is required when product_category is set'
+    if product_category not in PRODUCT_CATEGORIES.get(insurance_type, frozenset()):
+        return None, f'product_category is not valid for {insurance_type}'
+    return product_category, None
+
 
 def require_central_admin():
     current_user = get_current_user()
@@ -35,6 +67,7 @@ def get_custom_fields():
     # Agents see only active fields. Admins can opt into inactive ones.
     include_inactive = request.args.get('include_inactive', 'false').lower() == 'true'
     insurance_type = request.args.get('insurance_type', '').strip()
+    product_category = request.args.get('product_category', '').strip()
 
     current_user = get_current_user()
     is_admin = current_user and current_user.role in ('central_admin', 'branch_admin')
@@ -48,6 +81,11 @@ def get_custom_fields():
     # Fields apply globally (insurance_type empty) or to the requested type.
     if insurance_type:
         fields = [f for f in fields if (not f.insurance_type or f.insurance_type == insurance_type)]
+
+    # A product-category scoped field only applies to that exact category;
+    # fields with no product_category apply to the complete category.
+    if product_category:
+        fields = [f for f in fields if (not f.product_category or f.product_category == product_category)]
 
     return jsonify([f.to_dict() for f in fields])
 
@@ -76,6 +114,10 @@ def create_custom_field():
     if insurance_type and insurance_type not in VALID_INSURANCE_TYPES:
         return jsonify({'error': f'insurance_type must be one of: {", ".join(sorted(VALID_INSURANCE_TYPES))} or empty for all'}), 400
 
+    product_category, error = validate_product_category(insurance_type, data.get('product_category'))
+    if error:
+        return jsonify({'error': error}), 400
+
     options = validate_options(field_type, data.get('options'))
     if field_type == 'select' and not options:
         return jsonify({'error': 'select fields require at least one option'}), 400
@@ -83,6 +125,7 @@ def create_custom_field():
     field = CustomField(
         label=label[:255],
         insurance_type=insurance_type,
+        product_category=product_category,
         field_type=field_type,
         options=options,
         is_required=bool(data.get('is_required', False)),
@@ -133,6 +176,14 @@ def update_custom_field(id):
         if insurance_type and insurance_type not in VALID_INSURANCE_TYPES:
             return jsonify({'error': f'insurance_type must be one of: {", ".join(sorted(VALID_INSURANCE_TYPES))} or empty for all'}), 400
         field.insurance_type = insurance_type
+
+    if 'product_category' in data or 'insurance_type' in data:
+        product_category, error = validate_product_category(
+            field.insurance_type, data.get('product_category')
+        )
+        if error:
+            return jsonify({'error': error}), 400
+        field.product_category = product_category
 
     if 'is_required' in data:
         field.is_required = bool(data['is_required'])

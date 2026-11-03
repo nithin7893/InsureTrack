@@ -186,6 +186,7 @@ class Policy(db.Model):
     company = db.Column(db.String(100), nullable=False)
     category = db.Column(db.String(50))
     sub_category = db.Column(db.String(50))
+    product_category = db.Column(db.String(100))
     product = db.Column(db.String(100), nullable=False)
     customer_name = db.Column(db.String(255), nullable=False)
     primary_phone = db.Column(db.String(20), nullable=False)
@@ -251,6 +252,7 @@ class Policy(db.Model):
             'company': self.company,
             'category': self.category,
             'sub_category': self.sub_category,
+            'product_category': self.product_category,
             'product': self.product,
             'customer_name': self.customer_name,
             'primary_phone': self.primary_phone,
@@ -422,6 +424,8 @@ class CustomField(db.Model):
 
     insurance_type is optional: when set to a concrete type the field only
     applies to policies of that type; when empty it applies to all policies.
+    product_category narrows the field to one product category within that
+    insurance type; when empty it applies to the complete category.
     field_type is one of text, number, date, select. For 'select' the options
     column holds the list of allowed values.
     """
@@ -430,6 +434,7 @@ class CustomField(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     label = db.Column(db.String(255), nullable=False)
     insurance_type = db.Column(db.String(50))
+    product_category = db.Column(db.String(100))
     field_type = db.Column(db.String(20), nullable=False, default='text')
     options = db.Column(db.JSON)
     is_required = db.Column(db.Boolean, default=False)
@@ -443,6 +448,7 @@ class CustomField(db.Model):
             'id': self.id,
             'label': self.label,
             'insurance_type': self.insurance_type,
+            'product_category': self.product_category,
             'field_type': self.field_type,
             'options': self.options or [],
             'is_required': bool(self.is_required),

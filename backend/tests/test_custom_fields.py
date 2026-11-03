@@ -70,6 +70,49 @@ def test_insurance_type_filter(client, users):
     assert health_labels == {'All Type Field'}
 
 
+def test_product_category_filter(client, users):
+    admin_headers = auth_header(client, 'admin@test.com', 'Admin@123')
+    create_field(
+        client, admin_headers, label='Life Term Field',
+        insurance_type='Life', product_category='Term Plan',
+    )
+    create_field(client, admin_headers, label='Life Complete Field', insurance_type='Life')
+    create_field(
+        client, admin_headers, label='Health GMC Field',
+        insurance_type='Health', product_category='GMC',
+    )
+
+    agent_headers = auth_header(client, 'agent@test.com', 'Agent@123')
+
+    term_fields = client.get(
+        '/api/custom-fields?insurance_type=Life&product_category=Term%20Plan',
+        headers=agent_headers,
+    ).get_json()
+    assert {f['label'] for f in term_fields} == {'Life Term Field', 'Life Complete Field'}
+
+    ulip_fields = client.get(
+        '/api/custom-fields?insurance_type=Life&product_category=ULIP',
+        headers=agent_headers,
+    ).get_json()
+    assert {f['label'] for f in ulip_fields} == {'Life Complete Field'}
+
+    health_fields = client.get(
+        '/api/custom-fields?insurance_type=Health&product_category=GMC',
+        headers=agent_headers,
+    ).get_json()
+    assert {f['label'] for f in health_fields} == {'Health GMC Field'}
+
+
+def test_product_category_requires_matching_insurance_type(client, users):
+    headers = auth_header(client, 'admin@test.com', 'Admin@123')
+
+    resp = create_field(client, headers, insurance_type='Life', product_category='GMC')
+    assert resp.status_code == 400
+
+    resp = create_field(client, headers, insurance_type=None, product_category='Term Plan')
+    assert resp.status_code == 400
+
+
 def test_select_field_requires_options(client, users):
     headers = auth_header(client, 'admin@test.com', 'Admin@123')
     resp = create_field(client, headers, label='Gender', field_type='select', options=[])
@@ -92,15 +135,17 @@ def test_update_custom_field(client, users):
     assert body['is_required'] is True
 
 
-def create_policy_with_custom_values(client, headers, custom_values):
+def create_policy_with_custom_values(client, headers, custom_values, product_category=None,
+                                     policy_number='CUSTOM/2026/001'):
     payload = {
         'insurance_type': 'Life',
         'company': 'LIC',
         'category': 'Non Linked',
+        'product_category': product_category,
         'product': 'Term Plan',
         'customer_name': 'Test Customer',
         'primary_phone': '9876543210',
-        'policy_number': 'CUSTOM/2026/001',
+        'policy_number': policy_number,
         'policy_term': 10,
         'start_date': '2026-01-01',
         'end_date': '2036-01-01',
@@ -139,6 +184,31 @@ def test_create_policy_rejects_missing_required_field(client, users):
 
     agent_headers = auth_header(client, 'agent@test.com', 'Agent@123')
     resp = create_policy_with_custom_values(client, agent_headers, {})
+    assert resp.status_code == 400
+    assert 'required' in resp.get_json()['error'].lower()
+
+
+def test_required_field_only_applies_to_its_product_category(client, users):
+    admin_headers = auth_header(client, 'admin@test.com', 'Admin@123')
+    create_field(
+        client, admin_headers, label='Term Plan Nominee', is_required=True,
+        insurance_type='Life', product_category='Term Plan',
+    )
+
+    agent_headers = auth_header(client, 'agent@test.com', 'Agent@123')
+
+    # A policy outside the scoped product category does not require the field.
+    resp = create_policy_with_custom_values(
+        client, agent_headers, {}, product_category='ULIP',
+        policy_number='CUSTOM/2026/002',
+    )
+    assert resp.status_code == 201, resp.get_json()
+
+    # The matching product category does require it.
+    resp = create_policy_with_custom_values(
+        client, agent_headers, {}, product_category='Term Plan',
+        policy_number='CUSTOM/2026/003',
+    )
     assert resp.status_code == 400
     assert 'required' in resp.get_json()['error'].lower()
 
