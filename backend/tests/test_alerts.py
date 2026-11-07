@@ -38,7 +38,7 @@ def expected_due_dates(start, step_months, premium_paid_until, cutoff):
 def create_life_policy(client, headers, policy_number, **overrides):
     payload = {
         'insurance_type': 'Life',
-        'company': 'LIC',
+        'company': 'Life Insurance Corporation of India',
         'category': 'Non Linked',
         'product': 'Term Plan',
         'customer_name': 'Test Customer',

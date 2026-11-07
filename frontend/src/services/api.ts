@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { User, Policy, PolicyListResponse, PolicyFormData, SummaryData, PremiumByType, MonthlyRevenue, PremiumByCompany, PremiumByMode, AgentPerformance, Company, CompanyFormData, UserFormData, Location, ProductMaster, FieldMember, AlertListResponse, AlertSummary, PolicyHistory, CustomField } from '../types';
+import type { User, Policy, PolicyListResponse, PolicyFormData, SummaryData, PremiumByType, MonthlyRevenue, PremiumByCompany, PremiumByBranch, PremiumByMode, AgentPerformance, Company, CompanyFormData, UserFormData, Location, ProductMaster, FieldMember, AlertListResponse, AlertSummary, PolicyHistory, CustomField } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -195,6 +195,10 @@ export const analyticsService = {
     const response = await api.get('/api/analytics/premium-by-company');
     return response.data;
   },
+  getPremiumByBranch: async (): Promise<PremiumByBranch[]> => {
+    const response = await api.get('/api/analytics/premium-by-branch');
+    return response.data;
+  },
   getPremiumByMode: async (): Promise<PremiumByMode[]> => {
     const response = await api.get('/api/analytics/premium-by-mode');
     return response.data;
@@ -206,8 +210,10 @@ export const analyticsService = {
 };
 
 export const companyService = {
-  getCompanies: async (insurance_type?: string): Promise<Company[]> => {
-    const params = insurance_type ? { insurance_type } : {};
+  getCompanies: async (insurance_type?: string, includeInactive = false): Promise<Company[]> => {
+    const params: Record<string, string> = {};
+    if (insurance_type) params.insurance_type = insurance_type;
+    if (includeInactive) params.include_inactive = 'true';
     const response = await api.get('/api/companies', { params });
     return response.data;
   },

@@ -7,8 +7,21 @@ os.environ.setdefault('FLASK_ENV', 'production')
 import pytest
 
 from app import create_app
-from models import db, User, Location
+from models import db, User, Location, Company
 from werkzeug.security import generate_password_hash
+
+
+CANONICAL_COMPANIES = [
+    ('Life Insurance Corporation of India', 'Life'),
+    ('HDFC Life Insurance Company Limited', 'Life'),
+    ('ICICI Life Insurance Company Limited', 'Life'),
+    ('Go Digit Life Insurance Limited.', 'Life'),
+    ('Care Health Insurance Ltd.', 'Health'),
+    ('Star Health & Allied Insurance Co.Ltd.', 'Health'),
+    ('Go Digit General Insurance Limited', 'General'),
+    ('Tata AIG General Insurance Company Limited', 'General'),
+    ('The New India Assurance Company Limited', 'General'),
+]
 
 
 @pytest.fixture()
@@ -75,6 +88,13 @@ def users(app):
             location_id=loc_b.id,
         )
         db.session.add_all([admin, branch_a, agent_a, agent_b])
+
+        companies = [
+            Company(name=name, insurance_type=type_)
+            for name, type_ in CANONICAL_COMPANIES
+        ]
+        companies.append(Company(name='lic', insurance_type='Life', is_active=False))
+        db.session.add_all(companies)
         db.session.commit()
 
         return {

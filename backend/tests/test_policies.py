@@ -4,7 +4,7 @@ from conftest import auth_header, login
 def valid_life_policy(policy_number='TEST/2026/001'):
     return {
         'insurance_type': 'Life',
-        'company': 'LIC',
+        'company': 'Life Insurance Corporation of India',
         'category': 'Non Linked',
         'product': 'Term Plan',
         'customer_name': 'Test Customer',
@@ -72,7 +72,7 @@ def test_agent_cannot_read_other_branch_policy(client, users, app):
     with app.app_context():
         policy = Policy(
             insurance_type='Life',
-            company='LIC',
+            company='Life Insurance Corporation of India',
             product='Term Plan',
             customer_name='Other Branch Customer',
             primary_phone='9876543211',

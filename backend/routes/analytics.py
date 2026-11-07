@@ -1,12 +1,30 @@
 from flask import Blueprint, jsonify
 from flask_jwt_extended import jwt_required
-from models import Policy, db
+from models import Policy, Company, db
 from sqlalchemy import func, case, extract
 from utils.auth import get_current_user, branch_filter
 import logging
 
 analytics_bp = Blueprint('analytics', __name__)
 logger = logging.getLogger(__name__)
+
+
+def _company_lookup():
+    """Map (lower(name), insurance_type) to the companies table row.
+
+    If a name/type pair exists more than once (legacy data), prefer the active
+    row so analytics reports it as canonical.
+    """
+    rows = Company.query.with_entities(
+        Company.name, Company.insurance_type, Company.is_active
+    ).all()
+    index = {}
+    for row in rows:
+        key = (row.name.lower(), row.insurance_type)
+        current = index.get(key)
+        if current is None or (row.is_active and not current.is_active):
+            index[key] = row
+    return index
 
 
 @analytics_bp.route('/summary', methods=['GET'])
@@ -115,13 +133,46 @@ def get_premium_by_company():
 
     results = base_query.with_entities(
         Policy.company,
+        Policy.insurance_type,
         func.sum(Policy.total_premium).label('premium'),
         func.count(Policy.id).label('count')
-    ).group_by(Policy.company).order_by(func.sum(Policy.total_premium).desc()).all()
+    ).group_by(Policy.company, Policy.insurance_type).order_by(func.sum(Policy.total_premium).desc()).all()
+
+    lookup = _company_lookup()
+    rows = []
+    for r in results:
+        match = lookup.get((r.company.lower(), r.insurance_type))
+        rows.append({
+            'company': r.company,
+            'canonical_company': match.name if match else r.company,
+            'insurance_type': r.insurance_type,
+            'premium': float(r.premium),
+            'count': r.count,
+            'matched': match is not None,
+            'is_active': bool(match.is_active) if match else False
+        })
+    return jsonify(rows), 200
+
+
+@analytics_bp.route('/premium-by-branch', methods=['GET'])
+@jwt_required()
+def get_premium_by_branch():
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    base_query = Policy.query
+    base_query = branch_filter(base_query, Policy, current_user)
+
+    results = base_query.with_entities(
+        Policy.location,
+        func.sum(Policy.total_premium).label('premium'),
+        func.count(Policy.id).label('count')
+    ).group_by(Policy.location).order_by(func.sum(Policy.total_premium).desc()).all()
 
     return jsonify([
         {
-            'company': r.company,
+            'branch': r.location or 'Unassigned',
             'premium': float(r.premium),
             'count': r.count
         }

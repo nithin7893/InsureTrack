@@ -9,9 +9,9 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select } from '../components/ui/select';
-import { policyService, fieldMemberService, alertService, generalRiderService, customFieldService } from '../services/api';
+import { policyService, fieldMemberService, alertService, generalRiderService, customFieldService, companyService } from '../services/api';
 import { PRODUCT_CATEGORIES } from '../constants/insurance';
-import type { FieldMember, GeneralRider, CustomField } from '../types';
+import type { FieldMember, GeneralRider, CustomField, Company } from '../types';
 
 interface GeneralRiderDraft {
   sum_insured: number;
@@ -28,9 +28,6 @@ const emptyGeneralRiderDraft = (): GeneralRiderDraft => ({
 });
 
 const INSURANCE_TYPES = ['Life', 'Health', 'General'] as const;
-const LIFE_COMPANIES = ['LIC', 'HDFC Life', 'Axis Max Life', 'ICICI Prudential', 'GoDigit', 'Bajaj Life', 'SBI Life'];
-const HEALTH_COMPANIES = ['Care', 'Star', 'ICICI Lombard', 'New India', 'United India', 'Chola', 'Reliance', 'Tata AIG', 'National Insurance', 'Royal Sundaram', 'HDFC Ergo'];
-const GENERAL_COMPANIES = ['ICICI Lombard', 'New India', 'United India', 'Chola', 'Reliance', 'Tata AIG', 'GoDigit', 'National Insurance', 'Oriental', 'Royal Sundaram', 'Magma'];
 const LIFE_CATEGORIES = ['Linked', 'Non Linked'];
 const PREMIUM_MODES = ['Annual', 'Semi Annual', 'Quarterly', 'Monthly'];
 const POLICY_STATUSES = ['Fresh', 'Renewal', 'Other Company Renewal'];
@@ -201,6 +198,7 @@ export function EditPolicyPage() {
   const [selectedGeneralRiders, setSelectedGeneralRiders] = useState<Record<number, GeneralRiderDraft>>({});
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
+  const [companies, setCompanies] = useState<Company[]>([]);
   
   const {
     register,
@@ -224,10 +222,17 @@ export function EditPolicyPage() {
   const product_category = watch('product_category');
   const customFieldCategory = insuranceType === 'General' ? category : product_category;
 
-  const companies = insuranceType === 'Life' ? LIFE_COMPANIES 
-    : insuranceType === 'Health' ? HEALTH_COMPANIES 
-    : insuranceType === 'General' ? GENERAL_COMPANIES 
-    : [];
+  useEffect(() => {
+    companyService.getCompanies().then(setCompanies).catch(() => setCompanies([]));
+  }, []);
+
+  const currentCompany = watch('company');
+  const typeCompanies = companies
+    .filter((c) => c.insurance_type === insuranceType)
+    .map((c) => c.name);
+  const companyOptions = currentCompany && !typeCompanies.includes(currentCompany)
+    ? [currentCompany, ...typeCompanies]
+    : typeCompanies;
 
   useEffect(() => {
     const fetchPolicy = async () => {
@@ -507,6 +512,7 @@ export function EditPolicyPage() {
                     render={({ field }) => (
                       <Select {...field} onChange={(e) => {
                         field.onChange(e);
+                        setValue('company', '');
                         setValue('category', '');
                         setValue('sub_category', '');
                         setValue('product_category', '');
@@ -526,7 +532,7 @@ export function EditPolicyPage() {
                     render={({ field }) => (
                       <Select {...field} onChange={(e) => field.onChange(e)}>
                         <option value="">Select Company</option>
-                        {companies.map((company) => (
+                        {companyOptions.map((company) => (
                           <option key={company} value={company}>{company}</option>
                         ))}
                       </Select>

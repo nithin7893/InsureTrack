@@ -14,10 +14,10 @@ import {
   TableHeader, 
   TableRow 
 } from '../components/ui/table';
-import { policyService } from '../services/api';
+import { policyService, companyService } from '../services/api';
 import { formatCurrency, formatDate } from '../utils';
 import { useAuth } from '../hooks/useAuth';
-import type { Policy, PolicyListResponse } from '../types';
+import type { Policy, PolicyListResponse, Company } from '../types';
 
 export function PolicyListPage() {
   const navigate = useNavigate();
@@ -40,6 +40,11 @@ export function PolicyListPage() {
   const [startDateTo, setStartDateTo] = useState('');
   const [sortBy, setSortBy] = useState('created_at');
   const [sortOrder, setSortOrder] = useState('desc');
+  const [companies, setCompanies] = useState<Company[]>([]);
+
+  useEffect(() => {
+    companyService.getCompanies().then(setCompanies).catch(() => setCompanies([]));
+  }, []);
 
   useEffect(() => {
     fetchPolicies();
@@ -167,14 +172,11 @@ export function PolicyListPage() {
                   <Label className="text-xs text-muted-foreground">Company</Label>
                   <Select value={company} onChange={e => setCompany(e.target.value)}>
                     <option value="">All Companies</option>
-                    <option value="LIC">LIC</option>
-                    <option value="HDFC Life">HDFC Life</option>
-                    <option value="SBI Life">SBI Life</option>
-                    <option value="ICICI Lombard">ICICI Lombard</option>
-                    <option value="Care">Care</option>
-                    <option value="Star Health">Star Health</option>
-                    <option value="New India">New India</option>
-                    <option value="Tata AIG">Tata AIG</option>
+                    {companies
+                      .filter((c) => !insuranceType || c.insurance_type === insuranceType)
+                      .map((c) => (
+                        <option key={c.id} value={c.name}>{c.name} ({c.insurance_type})</option>
+                      ))}
                   </Select>
                 </div>
                 <div>

@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, Response, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import Policy, PolicyCover, PolicyRider, Vehicle, User, Location, CustomField, db
+from models import Policy, PolicyCover, PolicyRider, Vehicle, User, Location, CustomField, Company, db
 from datetime import datetime
 from utils.auth import (
     get_current_user, branch_filter, validate_phone,
@@ -68,6 +68,28 @@ def parse_covers(data):
 
 def covers_to_models(covers):
     return [PolicyCover(**c) for c in covers]
+
+
+def validate_company_selection(company, insurance_type):
+    """Return the trimmed company name if it is an active company of the type.
+
+    Raises ValueError when the company is missing or belongs to another
+    insurance type. Callers that need to preserve a legacy/unmatched value on
+    an existing policy must skip this validation when the value is unchanged.
+    """
+    cleaned = (company or '').strip()
+    if not cleaned:
+        raise ValueError('company is required')
+    if len(cleaned) > 100:
+        raise ValueError('company must be at most 100 characters')
+    match = Company.query.filter_by(
+        name=cleaned,
+        insurance_type=insurance_type,
+        is_active=True,
+    ).first()
+    if not match:
+        raise ValueError('company must be an active company for the selected insurance_type')
+    return cleaned
 
 
 def effective_product_category(insurance_type, product_category, category=''):
@@ -155,6 +177,23 @@ def apply_policy_payload(policy, data):
     if 'insurance_type' in data and data['insurance_type'] not in ('Life', 'Health', 'General'):
         raise ValueError('Invalid insurance_type')
 
+    new_insurance_type = data.get('insurance_type', policy.insurance_type)
+    company_provided = 'company' in data and bool(str(data.get('company') or '').strip())
+    incoming_company = str(data.get('company') or '').strip() if company_provided else ''
+    company_changed = company_provided and incoming_company != policy.company
+    type_changed = new_insurance_type != policy.insurance_type
+
+    # Only validate the company when it is explicitly changed or when the
+    # insurance type changes (the existing company must then be re-checked,
+    # even if the request echoes the same company string). Unchanged legacy
+    # values are preserved so historical policies stay editable after the
+    # catalogue migration.
+    if company_changed or type_changed:
+        validate_company_selection(
+            incoming_company if company_provided else policy.company,
+            new_insurance_type,
+        )
+
     # Validate phone if provided
     if 'primary_phone' in data and data['primary_phone'] and not validate_phone(data['primary_phone']):
         raise ValueError('Invalid primary_phone format')
@@ -186,7 +225,8 @@ def apply_policy_payload(policy, data):
             raise ValueError('policy_number already exists')
 
     policy.insurance_type = data.get('insurance_type', policy.insurance_type)
-    policy.company = data.get('company', policy.company)[:100] if data.get('company') else policy.company
+    if company_provided:
+        policy.company = incoming_company[:100]
     policy.category = data.get('category', policy.category)
     policy.sub_category = data.get('sub_category', policy.sub_category)
     policy.product_category = (data.get('product_category', policy.product_category) or '')[:100]
@@ -451,6 +491,12 @@ def create_policy():
     if data['insurance_type'] not in ('Life', 'Health', 'General'):
         return jsonify({'error': 'Invalid insurance_type. Must be Life, Health, or General'}), 400
 
+    # Validate that the company is an active company of the selected type
+    try:
+        company_name = validate_company_selection(data['company'], data['insurance_type'])
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
     # Validate policy_status
     valid_statuses = {'Fresh', 'Renewal', 'Other Company Renewal', 'Lapsed', 'Matured', 'Surrendered'}
     if data['policy_status'] not in valid_statuses:
@@ -554,7 +600,7 @@ def create_policy():
 
     policy = Policy(
         insurance_type=data['insurance_type'],
-        company=data['company'][:100],
+        company=company_name[:100],
         category=data.get('category', '')[:50] if data.get('category') else '',
         sub_category=data.get('sub_category', '')[:50] if data.get('sub_category') else '',
         product_category=effective_product_category(

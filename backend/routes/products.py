@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import ProductMaster, db, User
+from models import ProductMaster, Company, db, User
 from utils.auth import validate_string_field
 import logging
 
@@ -15,10 +15,31 @@ def require_admin():
     return user and user.role in ('central_admin', 'branch_admin')
 
 
+def validate_product_company(company_name, insurance_type):
+    """Validate an optional product company against the insurance type.
+
+    A blank company means the product applies to all companies and is always
+    allowed. Raises ValueError for an unknown/inactive/wrong-type company.
+    """
+    cleaned = (company_name or '').strip()
+    if not cleaned:
+        return ''
+    if len(cleaned) > 100:
+        raise ValueError('company_name must be at most 100 characters')
+    match = Company.query.filter_by(
+        name=cleaned,
+        insurance_type=insurance_type,
+        is_active=True,
+    ).first()
+    if not match:
+        raise ValueError('company_name must be an active company for the selected insurance_type')
+    return cleaned
+
+
 @products_bp.route('', methods=['GET'])
 def get_products():
     insurance_type = request.args.get('insurance_type', '')
-    company_name = request.args.get('company_name', '')
+    company_name = request.args.get('company_name', '').strip()
     category = request.args.get('category', '')
     sub_category = request.args.get('sub_category', '')
     product_category = request.args.get('product_category', '')
@@ -33,8 +54,11 @@ def get_products():
         query = query.filter(ProductMaster.insurance_type == insurance_type)
 
     if company_name:
+        # Case-insensitive so preserved legacy rows (for example the uppercase
+        # "GO DIGIT GENERAL INSURANCE LIMITED" product) still match the renamed
+        # canonical company. Blank/NULL products apply to all companies.
         query = query.filter(
-            (ProductMaster.company_name == company_name) |
+            (db.func.lower(ProductMaster.company_name) == company_name.lower()) |
             (ProductMaster.company_name.is_(None)) |
             (ProductMaster.company_name == '')
         )
@@ -85,9 +109,14 @@ def create_product():
     if not validate_string_field(data['product_name'], max_length=100):
         return jsonify({'error': 'product_name must be 1-100 characters'}), 400
 
+    try:
+        company_name = validate_product_company(data.get('company_name'), data['insurance_type'])
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
     existing = ProductMaster.query.filter_by(
         insurance_type=data['insurance_type'],
-        company_name=data.get('company_name') or '',
+        company_name=company_name,
         category=data.get('category') or '',
         sub_category=data.get('sub_category') or '',
         product_category=data.get('product_category') or '',
@@ -99,7 +128,7 @@ def create_product():
 
     product = ProductMaster(
         insurance_type=data['insurance_type'],
-        company_name=(data.get('company_name') or '')[:100],
+        company_name=company_name,
         category=(data.get('category') or '')[:100],
         sub_category=(data.get('sub_category') or '')[:100],
         product_category=(data.get('product_category') or '')[:100],
@@ -127,12 +156,31 @@ def update_product(id):
     if not data:
         return jsonify({'error': 'Invalid request body'}), 400
 
+    new_insurance_type = data.get('insurance_type') or product.insurance_type
     if data.get('insurance_type'):
         if data['insurance_type'] not in VALID_INSURANCE_TYPES:
             return jsonify({'error': 'Invalid insurance_type'}), 400
-        product.insurance_type = data['insurance_type']
+
+    existing_company = (product.company_name or '').strip()
+    company_provided = 'company_name' in data and bool(str(data.get('company_name') or '').strip())
+    incoming_company = str(data.get('company_name') or '').strip() if company_provided else ''
+    company_changed = company_provided and incoming_company != existing_company
+    type_changed = new_insurance_type != product.insurance_type
+
+    if company_provided and (company_changed or type_changed):
+        try:
+            incoming_company = validate_product_company(incoming_company, new_insurance_type)
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+    elif type_changed and existing_company:
+        try:
+            validate_product_company(existing_company, new_insurance_type)
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+
+    product.insurance_type = new_insurance_type
     if 'company_name' in data:
-        product.company_name = (data['company_name'] or '')[:100]
+        product.company_name = incoming_company[:100] if company_provided else ''
     if 'category' in data:
         product.category = (data['category'] or '')[:100]
     if 'sub_category' in data:

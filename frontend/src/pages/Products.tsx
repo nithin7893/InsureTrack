@@ -155,7 +155,8 @@ export function ProductsManagement() {
       if (editingProduct) {
         await productService.updateProduct(editingProduct.id, {
           ...formData,
-          company_name: formData.company_name || undefined,
+          // Send the raw value so selecting "All Companies" can clear it.
+          company_name: formData.company_name,
           category: formData.category || undefined,
           sub_category: formData.sub_category || undefined,
         });
@@ -214,6 +215,16 @@ export function ProductsManagement() {
   const filteredCompanies = companies
     .filter(c => c.insurance_type === formData.insurance_type)
     .map(c => c.name);
+
+  // Keep the existing (possibly legacy/inactive) company visible while editing
+  // a product so saving does not silently replace it.
+  if (
+    editingProduct?.company_name &&
+    editingProduct.insurance_type === formData.insurance_type &&
+    !filteredCompanies.includes(editingProduct.company_name)
+  ) {
+    filteredCompanies.unshift(editingProduct.company_name);
+  }
 
   return (
     <div className="space-y-6">

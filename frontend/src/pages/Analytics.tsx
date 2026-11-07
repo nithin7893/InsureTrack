@@ -17,12 +17,13 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { analyticsService } from '../services/api';
 import { formatCurrency } from '../utils';
-import type { PremiumByCompany, PremiumByType, MonthlyRevenue, AgentPerformance, PremiumByMode } from '../types';
+import type { PremiumByCompany, PremiumByBranch, PremiumByType, MonthlyRevenue, AgentPerformance, PremiumByMode } from '../types';
 
 const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#ef4444'];
 
 export function AnalyticsPage() {
   const [premiumByCompany, setPremiumByCompany] = useState<PremiumByCompany[]>([]);
+  const [premiumByBranch, setPremiumByBranch] = useState<PremiumByBranch[]>([]);
   const [premiumByType, setPremiumByType] = useState<PremiumByType[]>([]);
   const [monthlyRevenue, setMonthlyRevenue] = useState<MonthlyRevenue[]>([]);
   const [agentPerformance, setAgentPerformance] = useState<AgentPerformance[]>([]);
@@ -32,8 +33,9 @@ export function AnalyticsPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [companyData, typeData, revenueData, agentData, modeData] = await Promise.all([
+        const [companyData, branchData, typeData, revenueData, agentData, modeData] = await Promise.all([
           analyticsService.getPremiumByCompany(),
+          analyticsService.getPremiumByBranch(),
           analyticsService.getPremiumByType(),
           analyticsService.getMonthlyRevenue(),
           analyticsService.getAgentPerformance(),
@@ -41,6 +43,7 @@ export function AnalyticsPage() {
         ]);
         
         setPremiumByCompany(companyData);
+        setPremiumByBranch(branchData);
         setPremiumByType(typeData);
         setMonthlyRevenue(revenueData);
         setAgentPerformance(agentData);
@@ -81,7 +84,7 @@ export function AnalyticsPage() {
                 <BarChart data={premiumByCompany} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis type="number" tickFormatter={(value) => `₹${value / 1000}k`} />
-                  <YAxis type="category" dataKey="company" width={100} tick={{ fontSize: 12 }} />
+                  <YAxis type="category" dataKey="company" width={180} tick={{ fontSize: 11 }} />
                   <Tooltip formatter={(value: number) => formatCurrency(value)} />
                   <Bar dataKey="premium" fill="#6366f1" radius={[0, 4, 4, 0]} />
                 </BarChart>
@@ -177,6 +180,27 @@ export function AnalyticsPage() {
 
       <Card>
         <CardHeader>
+          <CardTitle>Premium by Branch</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={premiumByBranch}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="branch" tick={{ fontSize: 12 }} />
+                <YAxis tickFormatter={(value) => `₹${value / 1000}k`} />
+                <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                <Legend />
+                <Bar dataKey="premium" fill="#10b981" name="Premium" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="count" fill="#3b82f6" name="Policies" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Premium by Payment Mode</CardTitle>
         </CardHeader>
         <CardContent>
@@ -203,7 +227,7 @@ export function AnalyticsPage() {
         <CardContent>
           <div className="grid gap-4 md:grid-cols-3">
             {premiumByCompany.slice(0, 6).map((company, index) => (
-              <div key={company.company} className="rounded-lg border p-4">
+              <div key={`${company.company}-${company.insurance_type || 'all'}`} className="rounded-lg border p-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-medium">{company.company}</span>
                   <div 
@@ -211,7 +235,16 @@ export function AnalyticsPage() {
                     style={{ backgroundColor: COLORS[index % COLORS.length] }}
                   />
                 </div>
-                <div className="text-2xl font-bold">{formatCurrency(company.premium)}</div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>{company.insurance_type || 'Unknown type'}</span>
+                  {company.matched === false && (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">Unmatched</span>
+                  )}
+                  {company.matched !== false && company.is_active === false && (
+                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-700">Inactive</span>
+                  )}
+                </div>
+                <div className="text-2xl font-bold mt-2">{formatCurrency(company.premium)}</div>
                 <div className="text-sm text-muted-foreground">{company.count} policies</div>
               </div>
             ))}

@@ -168,6 +168,16 @@ export interface MonthlyRevenue {
 
 export interface PremiumByCompany {
   company: string;
+  canonical_company?: string;
+  insurance_type?: string;
+  premium: number;
+  count: number;
+  matched?: boolean;
+  is_active?: boolean;
+}
+
+export interface PremiumByBranch {
+  branch: string;
   premium: number;
   count: number;
 }

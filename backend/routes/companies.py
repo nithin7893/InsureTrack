@@ -1,7 +1,8 @@
 from flask import Blueprint, request, jsonify, abort
 from flask_jwt_extended import jwt_required
+from sqlalchemy import func
 from models import db, Company, User
-from utils.auth import get_current_user, validate_string_field
+from utils.auth import validate_string_field
 import logging
 
 companies_bp = Blueprint('companies', __name__)
@@ -20,14 +21,35 @@ def require_admin():
     return user and user.role in ('central_admin', 'branch_admin')
 
 
+def _clean_name(value):
+    return (value or '').strip() if isinstance(value, str) else ''
+
+
+def _active_duplicate_exists(name, insurance_type, exclude_id=None):
+    """Return an active company with the same (case-insensitive) name and type."""
+    query = Company.query.filter(
+        Company.insurance_type == insurance_type,
+        Company.is_active.is_(True),
+        func.lower(Company.name) == name.lower(),
+    )
+    if exclude_id is not None:
+        query = query.filter(Company.id != exclude_id)
+    return query.first()
+
+
 @companies_bp.route('', methods=['GET'])
 @jwt_required()
 def get_companies():
     insurance_type = request.args.get('insurance_type')
-    query = Company.query.filter_by(is_active=True)
+    include_inactive = request.args.get('include_inactive', 'false').lower() == 'true'
+
+    query = Company.query
+    if not include_inactive:
+        query = query.filter_by(is_active=True)
     if insurance_type and insurance_type in VALID_INSURANCE_TYPES:
         query = query.filter_by(insurance_type=insurance_type)
-    companies = query.all()
+
+    companies = query.order_by(Company.insurance_type.asc(), Company.name.asc()).all()
     return jsonify([c.to_dict() for c in companies])
 
 
@@ -41,8 +63,8 @@ def create_company():
     if not data:
         return jsonify({'error': 'Invalid request body'}), 400
 
-    name = data.get('name', '').strip()
-    insurance_type = data.get('insurance_type', '').strip()
+    name = _clean_name(data.get('name'))
+    insurance_type = _clean_name(data.get('insurance_type'))
 
     if not name or not insurance_type:
         return jsonify({'error': 'Name and insurance_type are required'}), 400
@@ -53,8 +75,8 @@ def create_company():
     if insurance_type not in VALID_INSURANCE_TYPES:
         return jsonify({'error': f'insurance_type must be one of: {", ".join(sorted(VALID_INSURANCE_TYPES))}'}), 400
 
-    if Company.query.filter_by(name=name, insurance_type=insurance_type).first():
-        return jsonify({'error': 'Company already exists'}), 400
+    if _active_duplicate_exists(name, insurance_type):
+        return jsonify({'error': 'Company already exists for this insurance type'}), 400
 
     company = Company(
         name=name[:100],
@@ -80,14 +102,30 @@ def update_company(id):
     if not data:
         return jsonify({'error': 'Invalid request body'}), 400
 
-    if data.get('name'):
-        company.name = data['name'][:100]
+    name = company.name
+    if 'name' in data:
+        name = _clean_name(data.get('name'))
+        if not validate_string_field(name, max_length=100):
+            return jsonify({'error': 'Name must be 1-100 characters'}), 400
+
+    insurance_type = company.insurance_type
     if data.get('insurance_type'):
-        if data['insurance_type'] not in VALID_INSURANCE_TYPES:
+        insurance_type = _clean_name(data['insurance_type'])
+        if insurance_type not in VALID_INSURANCE_TYPES:
             return jsonify({'error': 'Invalid insurance_type'}), 400
-        company.insurance_type = data['insurance_type']
+
+    is_active = company.is_active
     if 'is_active' in data:
-        company.is_active = bool(data['is_active'])
+        is_active = bool(data['is_active'])
+
+    if name != company.name or insurance_type != company.insurance_type or is_active:
+        if _active_duplicate_exists(name, insurance_type, exclude_id=company.id):
+            return jsonify({'error': 'Company already exists for this insurance type'}), 400
+
+    company.name = name[:100]
+    company.insurance_type = insurance_type
+    if 'is_active' in data:
+        company.is_active = is_active
 
     db.session.commit()
     return jsonify(company.to_dict())

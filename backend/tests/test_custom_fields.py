@@ -139,7 +139,7 @@ def create_policy_with_custom_values(client, headers, custom_values, product_cat
                                      policy_number='CUSTOM/2026/001'):
     payload = {
         'insurance_type': 'Life',
-        'company': 'LIC',
+        'company': 'Life Insurance Corporation of India',
         'category': 'Non Linked',
         'product_category': product_category,
         'product': 'Term Plan',

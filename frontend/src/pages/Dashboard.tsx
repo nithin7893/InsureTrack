@@ -31,13 +31,14 @@ import {
 } from '../components/ui/table';
 import { analyticsService, policyService } from '../services/api';
 import { formatCurrency, formatDate } from '../utils';
-import type { SummaryData, PremiumByType, MonthlyRevenue, Policy } from '../types';
+import type { SummaryData, PremiumByType, PremiumByCompany, MonthlyRevenue, Policy } from '../types';
 
-const COLORS = ['#6366f1', '#8b5cf6', '#ec4899'];
+const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6'];
 
 export function DashboardPage() {
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [premiumByType, setPremiumByType] = useState<PremiumByType[]>([]);
+  const [premiumByCompany, setPremiumByCompany] = useState<PremiumByCompany[]>([]);
   const [monthlyRevenue, setMonthlyRevenue] = useState<MonthlyRevenue[]>([]);
   const [recentPolicies, setRecentPolicies] = useState<Policy[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -45,15 +46,17 @@ export function DashboardPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [summaryData, premiumData, revenueData, policiesData] = await Promise.all([
+        const [summaryData, premiumData, companyData, revenueData, policiesData] = await Promise.all([
           analyticsService.getSummary(),
           analyticsService.getPremiumByType(),
+          analyticsService.getPremiumByCompany(),
           analyticsService.getMonthlyRevenue(),
           policyService.getPolicies({ per_page: 5, sort_by: 'created_at', sort_order: 'desc' })
         ]);
         
         setSummary(summaryData);
         setPremiumByType(premiumData);
+        setPremiumByCompany(companyData);
         setMonthlyRevenue(revenueData);
         setRecentPolicies(policiesData.policies);
       } catch (error) {
@@ -178,6 +181,62 @@ export function DashboardPage() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Premium by Company</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={premiumByCompany.slice(0, 8)} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis type="number" tick={{ fontSize: 12 }} tickFormatter={(value) => `₹${value / 1000}k`} />
+                  <YAxis type="category" dataKey="company" width={170} tick={{ fontSize: 11 }} />
+                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                  <Bar dataKey="premium" fill="#10b981" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Company Performance</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Company</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead className="text-right">Policies</TableHead>
+                  <TableHead className="text-right">Premium</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {premiumByCompany.slice(0, 6).map((company) => (
+                  <TableRow key={`${company.company}-${company.insurance_type || 'all'}`}>
+                    <TableCell className="font-medium">{company.company}</TableCell>
+                    <TableCell className="text-muted-foreground">{company.insurance_type || '-'}</TableCell>
+                    <TableCell className="text-right">{company.count}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(company.premium)}</TableCell>
+                  </TableRow>
+                ))}
+                {premiumByCompany.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-muted-foreground">
+                      No company data available
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       </div>
