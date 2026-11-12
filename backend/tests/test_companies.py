@@ -113,6 +113,46 @@ def test_same_name_can_exist_for_different_insurance_type(client, users):
     assert resp.status_code == 201
 
 
+def test_create_company_with_multiple_insurance_types(client, users):
+    headers = auth_header(client, 'admin@test.com', 'Admin@123')
+    name = 'Multi Category Insurance Ltd.'
+    resp = client.post('/api/companies', json={
+        'name': name,
+        'insurance_types': ['Life', 'Health', 'General'],
+    }, headers=headers)
+    assert resp.status_code == 201
+    body = resp.get_json()
+    assert {c['insurance_type'] for c in body['companies']} == {'Life', 'Health', 'General'}
+    assert body['skipped'] == []
+
+    # Requesting only already-existing categories is rejected.
+    resp = client.post('/api/companies', json={
+        'name': name,
+        'insurance_types': ['Life', 'General'],
+    }, headers=headers)
+    assert resp.status_code == 400
+    assert 'already exists' in resp.get_json()['error'].lower()
+
+
+def test_create_company_with_multiple_types_skips_existing(client, users):
+    headers = auth_header(client, 'admin@test.com', 'Admin@123')
+    name = 'Partially Existing Insurance Ltd.'
+    resp = client.post('/api/companies', json={
+        'name': name,
+        'insurance_types': ['Life', 'Health'],
+    }, headers=headers)
+    assert resp.status_code == 201
+
+    resp = client.post('/api/companies', json={
+        'name': name,
+        'insurance_types': ['Life', 'General'],
+    }, headers=headers)
+    assert resp.status_code == 201
+    body = resp.get_json()
+    assert {c['insurance_type'] for c in body['companies']} == {'General'}
+    assert body['skipped'] == ['Life']
+
+
 def test_company_update_prevents_duplicate(client, users):
     headers = auth_header(client, 'admin@test.com', 'Admin@123')
     with client.application.app_context():
@@ -125,6 +165,63 @@ def test_company_update_prevents_duplicate(client, users):
         'name': 'Care Health Insurance Ltd.',
     }, headers=headers)
     assert resp.status_code == 400
+
+
+def test_company_rename_updates_matching_policies(client, users, app):
+    policy_id = add_policy(
+        app,
+        company='Life Insurance Corporation of India',
+        policy_number='RENAME/2026/001',
+    )
+    headers = auth_header(client, 'admin@test.com', 'Admin@123')
+    with app.app_context():
+        company = Company.query.filter_by(
+            name='Life Insurance Corporation of India',
+            insurance_type='Life',
+        ).first()
+        company_id = company.id
+
+    resp = client.put(
+        f'/api/companies/{company_id}',
+        json={'name': 'LIC of India'},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.get_json()
+    assert resp.get_json()['name'] == 'LIC of India'
+
+    with app.app_context():
+        policy = db.session.get(Policy, policy_id)
+        assert policy.company == 'LIC of India'
+        assert policy.insurance_type == 'Life'
+
+
+def test_company_rename_does_not_touch_other_insurance_types(client, users, app):
+    # A legacy-style policy with the same name but a different insurance type
+    # belongs to a separate company record and must not be renamed.
+    add_policy(
+        app,
+        company='Life Insurance Corporation of India',
+        insurance_type='Health',
+        policy_number='RENAME/2026/HEALTH',
+    )
+    headers = auth_header(client, 'admin@test.com', 'Admin@123')
+    with app.app_context():
+        company = Company.query.filter_by(
+            name='Life Insurance Corporation of India',
+            insurance_type='Life',
+        ).first()
+        company_id = company.id
+
+    resp = client.put(
+        f'/api/companies/{company_id}',
+        json={'name': 'LIC of India'},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.get_json()
+
+    with app.app_context():
+        policy = Policy.query.filter_by(policy_number='RENAME/2026/HEALTH').first()
+        assert policy.company == 'Life Insurance Corporation of India'
 
 
 def test_policy_company_must_match_insurance_type(client, users):

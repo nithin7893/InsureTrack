@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, abort
 from flask_jwt_extended import jwt_required
 from sqlalchemy import func
-from models import db, Company, User
+from models import db, Company, Policy, User
 from utils.auth import validate_string_field
 import logging
 
@@ -64,29 +64,66 @@ def create_company():
         return jsonify({'error': 'Invalid request body'}), 400
 
     name = _clean_name(data.get('name'))
-    insurance_type = _clean_name(data.get('insurance_type'))
-
-    if not name or not insurance_type:
+    if not name:
         return jsonify({'error': 'Name and insurance_type are required'}), 400
 
     if not validate_string_field(name, max_length=100):
         return jsonify({'error': 'Name must be 1-100 characters'}), 400
 
-    if insurance_type not in VALID_INSURANCE_TYPES:
-        return jsonify({'error': f'insurance_type must be one of: {", ".join(sorted(VALID_INSURANCE_TYPES))}'}), 400
+    # Accept either a single insurance_type (legacy) or a list of
+    # insurance_types so the dashboard can add one company to several
+    # categories in a single request.
+    is_multi = 'insurance_types' in data
+    if is_multi:
+        raw_types = data.get('insurance_types')
+        if isinstance(raw_types, str):
+            raw_types = [raw_types]
+        if not isinstance(raw_types, list):
+            return jsonify({'error': 'insurance_types must be a list'}), 400
+    else:
+        raw_types = [data.get('insurance_type')]
 
-    if _active_duplicate_exists(name, insurance_type):
-        return jsonify({'error': 'Company already exists for this insurance type'}), 400
+    insurance_types = []
+    for value in raw_types:
+        insurance_type = _clean_name(value)
+        if not insurance_type:
+            continue
+        if insurance_type not in VALID_INSURANCE_TYPES:
+            return jsonify({'error': f'insurance_type must be one of: {", ".join(sorted(VALID_INSURANCE_TYPES))}'}), 400
+        if insurance_type not in insurance_types:
+            insurance_types.append(insurance_type)
 
-    company = Company(
-        name=name[:100],
-        insurance_type=insurance_type
-    )
-    db.session.add(company)
+    if not insurance_types:
+        return jsonify({'error': 'Name and insurance_type are required'}), 400
+
+    created = []
+    skipped = []
+    for insurance_type in insurance_types:
+        if _active_duplicate_exists(name, insurance_type):
+            skipped.append(insurance_type)
+            continue
+        company = Company(
+            name=name[:100],
+            insurance_type=insurance_type
+        )
+        db.session.add(company)
+        created.append(company)
+
+    if not created:
+        db.session.rollback()
+        return jsonify({'error': 'Company already exists for the selected insurance type'}), 400
+
     db.session.commit()
 
-    logger.info(f"Company created: {name} ({insurance_type})")
-    return jsonify(company.to_dict()), 201
+    logger.info(f"Company created: {name} ({', '.join(insurance_types)})")
+
+    if not is_multi:
+        return jsonify(created[0].to_dict()), 201
+
+    return jsonify({
+        'companies': [company.to_dict() for company in created],
+        'skipped': skipped,
+    }), 201
 
 
 @companies_bp.route('/<int:id>', methods=['PUT'])
@@ -122,10 +159,27 @@ def update_company(id):
         if _active_duplicate_exists(name, insurance_type, exclude_id=company.id):
             return jsonify({'error': 'Company already exists for this insurance type'}), 400
 
+    old_name = company.name
+    old_insurance_type = company.insurance_type
+
     company.name = name[:100]
     company.insurance_type = insurance_type
     if 'is_active' in data:
         company.is_active = is_active
+
+    # Policies reference companies by name (there is no foreign key), so a
+    # rename must be propagated to every matching policy for this category.
+    if old_name != company.name or old_insurance_type != company.insurance_type:
+        Policy.query.filter(
+            func.lower(Policy.company) == old_name.lower(),
+            Policy.insurance_type == old_insurance_type,
+        ).update(
+            {
+                Policy.company: company.name,
+                Policy.insurance_type: company.insurance_type,
+            },
+            synchronize_session=False,
+        )
 
     db.session.commit()
     return jsonify(company.to_dict())
