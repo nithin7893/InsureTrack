@@ -47,7 +47,9 @@ def upgrade() -> None:
 
     # Backfill rows that predate the approval workflow.
     op.execute("UPDATE policies SET approval_status = 'approved' WHERE approval_status IS NULL")
-    op.execute('UPDATE users SET requires_policy_approval = 0 WHERE requires_policy_approval IS NULL')
+    # Use a boolean literal: PostgreSQL rejects the integer 0 for BOOLEAN columns
+    # (SQLite accepts both, so this stays portable).
+    op.execute('UPDATE users SET requires_policy_approval = false WHERE requires_policy_approval IS NULL')
 
 
 def downgrade() -> None:

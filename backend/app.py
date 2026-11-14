@@ -464,7 +464,8 @@ def migrate_schema():
                 sa.text("UPDATE policies SET approval_status = 'approved' WHERE approval_status IS NULL")
             )
             db.session.execute(
-                sa.text("UPDATE users SET requires_policy_approval = 0 WHERE requires_policy_approval IS NULL")
+                # Boolean literal so this works on PostgreSQL as well as SQLite.
+                sa.text("UPDATE users SET requires_policy_approval = false WHERE requires_policy_approval IS NULL")
             )
 
             db.session.commit()
