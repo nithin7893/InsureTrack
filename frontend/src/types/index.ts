@@ -6,6 +6,7 @@ export interface User {
   location?: string;
   location_id?: number;
   is_active: boolean;
+  requires_policy_approval?: boolean;
   created_at?: string;
 }
 
@@ -90,6 +91,12 @@ export interface Policy {
   vehicle?: Vehicle;
   covers: PolicyCover[];
   custom_values?: Record<string, string>;
+  approval_status?: 'approved' | 'pending' | 'rejected';
+  requested_by?: number;
+  requested_by_name?: string;
+  approved_by?: number;
+  approved_by_name?: string;
+  approved_at?: string | null;
   created_at: string;
 }
 
@@ -200,6 +207,7 @@ export interface UserFormData {
   name: string;
   role: 'central_admin' | 'branch_admin' | 'agent';
   location_id?: number;
+  requires_policy_approval?: boolean;
 }
 
 export interface Location {
@@ -226,6 +234,7 @@ export interface GeneralRider {
   name: string;
   description?: string;
   category: string;
+  product_names?: string[];
   is_active: boolean;
   created_at?: string;
 }
@@ -244,7 +253,8 @@ export interface FieldMember {
 
 export interface CompanyFormData {
   name: string;
-  insurance_type: string;
+  insurance_type?: string;
+  insurance_types?: string[];
 }
 
 export interface Alert {

@@ -3,7 +3,7 @@ from flask_jwt_extended import jwt_required
 from datetime import date, timedelta
 from calendar import monthrange
 from models import Policy, Location, PolicyHistory, db
-from routes.policies import apply_policy_payload
+from routes.policies import apply_policy_payload, only_approved
 from utils.auth import get_current_user, branch_filter
 import logging
 
@@ -56,6 +56,7 @@ def compute_alerts(user, days_ahead=90, alert_type=None):
 
     query = Policy.query
     query = branch_filter(query, Policy, user)
+    query = only_approved(query)
 
     policies = query.all()
     alerts = []

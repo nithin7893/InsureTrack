@@ -13,6 +13,8 @@ import { Toast } from '../components/ui/toast';
 import { policyService, productService, fieldMemberService, generalRiderService, customFieldService } from '../services/api';
 import { companyService } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
+import { GENERAL_SUB_CATEGORIES } from '../constants/insurance';
+import { calculatePolicyEndDate } from '../utils';
 import type { Company, ProductMaster, FieldMember, GeneralRider, CustomField } from '../types';
 
 const INSURANCE_TYPES = ['Life', 'Health', 'General'] as const;
@@ -26,98 +28,6 @@ const GENERAL_CATEGORIES = [
   'Engineering', 'Fire', 'Health', 'Liability',
   'Marine Cargo', 'Marine Hull', 'Miscellaneous', 'Motor'
 ];
-
-const GENERAL_SUB_CATEGORIES: Record<string, string[]> = {
-  Engineering: [
-    "Contractor's All Risks (CAR)",
-    "Erection All Risks (EAR)",
-    "Advance Loss of Profits (ALOP) / Delay in Start-Up (DSU)",
-    "Machinery Breakdown (MBD)",
-    "Contractor's Plant & Machinery (CPM)",
-    "Boiler and Pressure Plant (BPP)",
-    'Electronic Equipment (EEI)',
-    'Machinery Loss of Profits (MLOP) / Business Interruption',
-    'Deterioration of Stocks (DOS)',
-    'Civil Engineering Completed Risks (CECR)',
-  ],
-  Fire: [
-    'Bharat Griha Raksha',
-    'Bharat Sookshma Udyam Suraksha',
-    'Bharat Laghu Udyam Suraksha',
-    'Standard Fire and Special Perils (SFSP)',
-    'Floating Fire Policy',
-    'Declaration Policy',
-    'Consequential Loss (Fire) / Business Interruption',
-    'Reinstatement / Replacement Value Policy',
-  ],
-  Health: [
-    'Individual', 'Floater', 'GMC', 'Personal Accident', 'Travel', 'Topup', 'GPA',
-  ],
-  Liability: [
-    'Public Liability (Act)',
-    'Public Liability (Industrial / Non-Industrial)',
-    'Product Liability',
-    'Directors and Officers (D&O)',
-    'Professional Indemnity (PI) / Errors & Omissions (E&O)',
-    'Employment Practices Liability (EPLI)',
-    'Cyber Liability',
-    'Commercial Crime',
-    'Commercial General Liability (CGL)',
-  ],
-  'Marine Cargo': [
-    'Marine Open Policy',
-    'Marine Sales Turnover (STOP)',
-    'Specific Voyage Policy',
-    'Marine Open Cover',
-    'Inland Marine / Domestic Transit',
-    'Export & Import Cargo',
-    'ICC (A) - All Risks',
-    'ICC (B) / ICC (C)',
-    'ICC (Air)',
-    'Marine DSU / Marine ALOP',
-  ],
-  'Marine Hull': [
-    'Hull and Machinery (H&M)',
-    'Freight & Disbursement',
-    'Protection and Indemnity (P&I) - Restricted',
-    'Time Hull Policy',
-    'Voyage Hull Policy',
-    'Fleet Insurance',
-    "Builder's Risk / Ship Repairers Liability",
-    'Port Risk Policy',
-    'Blue-Water Hull',
-    'Brown-Water / Inland Marine Hull',
-    'Specialized Vessel',
-  ],
-  Miscellaneous: [
-    'Burglary and Housebreaking',
-    'Money in Transit / Money in Safe',
-    'Fidelity Guarantee',
-    'Plate Glass',
-    'Neon Sign / Glow Sign',
-    'Baggage',
-    'Trade Credit',
-    "Banker's Indemnity",
-    "Jewellers' Block",
-    'Cattle & Livestock',
-    'Poultry',
-    'Agricultural Pump Set',
-    'Weather-Based Crop (Non-PMFBY)',
-  ],
-  Motor: [
-    'Private Cars',
-    'Two-Wheelers',
-    'Commercial Vehicles - Goods Carrying',
-    'Commercial Vehicles - Passenger Carrying',
-    'Commercial Vehicles - Miscellaneous Class D',
-    'Own Damage (OD)',
-    'Third-Party (TP) Liability',
-    'Comprehensive / Package Policy',
-    'Bundled Policy (New Vehicles)',
-    'Stand-Alone OD',
-    'Pay-As-You-Drive / Telematics',
-  ],
-};
 
 const LIFE_RIDERS = [
   { key: 'rider_health_sickness', label: 'Health+Sickness' },
@@ -273,6 +183,7 @@ export function AddPolicyPage() {
   const category = watch('category');
   const sub_category = watch('sub_category');
   const product_category = watch('product_category');
+  const product = watch('product');
   const premiumPaymentMode = watch('premium_payment_mode');
   const policyTerm = Number(watch('policy_term')) || 1;
   const startDate = watch('start_date');
@@ -283,6 +194,10 @@ export function AddPolicyPage() {
   const effectiveSubCategory = sub_category === CUSTOM_OPTION ? customSubCategory : sub_category;
   const showGeneralProductPicker = insuranceType === 'General' && effectiveCategory && effectiveSubCategory;
   const customFieldCategory = insuranceType === 'General' ? effectiveCategory : product_category;
+  const applicableGeneralRiders = generalRiders.filter((rider) => {
+    const names = rider.product_names || [];
+    return names.length === 0 || !!(product && names.includes(product));
+  });
 
   const filteredCompanies = companies
     .filter(c => c.insurance_type === insuranceType)
@@ -306,9 +221,7 @@ export function AddPolicyPage() {
 
   useEffect(() => {
     if (startDate && policyTerm > 0) {
-      const s = new Date(startDate);
-      s.setFullYear(s.getFullYear() + policyTerm);
-      setValue('end_date', s.toISOString().split('T')[0]);
+      setValue('end_date', calculatePolicyEndDate(startDate, policyTerm));
     }
   }, [startDate, policyTerm, setValue]);
 
@@ -335,15 +248,24 @@ export function AddPolicyPage() {
         
         const data = await productService.getProducts(params);
         setDynamicProducts(data);
+        // For General policies with no products configured in the product
+        // master, the sub-category dropdown is the product. Reuse it instead
+        // of asking for the product again via an empty manual input.
+        if (insuranceType === 'General' && effectiveSubCategory && data.length === 0) {
+          setValue('product', effectiveSubCategory);
+        }
       } catch (err) {
         console.error('Failed to load products');
         setDynamicProducts([]);
+        if (insuranceType === 'General' && effectiveSubCategory) {
+          setValue('product', effectiveSubCategory);
+        }
       } finally {
         setProductsLoading(false);
       }
     };
     loadProducts();
-  }, [insuranceType, company, effectiveCategory, effectiveSubCategory, product_category]);
+  }, [insuranceType, company, effectiveCategory, effectiveSubCategory, product_category, setValue]);
 
   useEffect(() => {
     const loadCompanies = async () => {
@@ -371,6 +293,22 @@ export function AddPolicyPage() {
       setSelectedGeneralRiders({});
     }
   }, [insuranceType, effectiveCategory]);
+
+  useEffect(() => {
+    const allowedIds = new Set(applicableGeneralRiders.map((rider) => rider.id));
+    setSelectedGeneralRiders(prev => {
+      let changed = false;
+      const next: Record<number, GeneralRiderDraft> = {};
+      Object.entries(prev).forEach(([riderId, draft]) => {
+        if (allowedIds.has(Number(riderId))) {
+          next[Number(riderId)] = draft;
+        } else {
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [product, generalRiders]);
 
   useEffect(() => {
     if (!insuranceType) {
@@ -446,9 +384,14 @@ export function AddPolicyPage() {
         }
         payload.custom_values = customValues;
       }
-      await policyService.createPolicy(payload);
-      setToast({ message: 'Policy created successfully!', type: 'success' });
-      setTimeout(() => navigate('/policies'), 1500);
+      const created = await policyService.createPolicy(payload);
+      if (created.approval_status === 'pending') {
+        setToast({ message: 'Policy sent to central admin for approval.', type: 'success' });
+        setTimeout(() => navigate('/policies'), 2000);
+      } else {
+        setToast({ message: 'Policy created successfully!', type: 'success' });
+        setTimeout(() => navigate('/policies'), 1500);
+      }
     } catch (err: any) {
       setToast({ message: err.response?.data?.error || 'Failed to create policy', type: 'error' });
     } finally {
@@ -661,7 +604,7 @@ export function AddPolicyPage() {
                       </div>
                     ) : null}
 
-                    {showGeneralProductPicker && (
+                    {showGeneralProductPicker && (productsLoading || dynamicProducts.length > 0) && (
                       <div className="space-y-2">
                         <Label>
                           <div className="flex items-center gap-1">
@@ -674,39 +617,18 @@ export function AddPolicyPage() {
                             <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                           </div>
                         ) : (
-                          <>
-                            {dynamicProducts.length > 0 ? (
-                              <Controller
-                                name="product"
-                                control={control}
-                                render={({ field }) => (
-                                  <Select {...field} onChange={(e) => field.onChange(e)}>
-                                    <option value="">Select Product</option>
-                                    {dynamicProducts.map((p) => (
-                                      <option key={p.id} value={p.product_name}>{p.product_name}</option>
-                                    ))}
-                                  </Select>
-                                )}
-                              />
-                            ) : (
-                              <Controller
-                                name="product"
-                                control={control}
-                                render={({ field }) => (
-                                  <div className="space-y-2">
-                                    <div className="text-sm text-muted-foreground bg-muted/50 rounded-md p-2 border">
-                                      No products found for this combination. You can add products in Admin &rarr; Products.
-                                    </div>
-                                    <Input
-                                      placeholder="Enter product name manually..."
-                                      value={field.value || ''}
-                                      onChange={(e) => field.onChange(e.target.value)}
-                                    />
-                                  </div>
-                                )}
-                              />
+                          <Controller
+                            name="product"
+                            control={control}
+                            render={({ field }) => (
+                              <Select {...field} onChange={(e) => field.onChange(e)}>
+                                <option value="">Select Product</option>
+                                {dynamicProducts.map((p) => (
+                                  <option key={p.id} value={p.product_name}>{p.product_name}</option>
+                                ))}
+                              </Select>
                             )}
-                          </>
+                          />
                         )}
                         {errors.product && (
                           <p className="text-sm text-destructive">{errors.product.message}</p>
@@ -821,7 +743,8 @@ export function AddPolicyPage() {
 
             {step === 4 && (
               <div className="space-y-4">
-                {(product_category || showGeneralProductPicker) && (
+                {((product_category || showGeneralProductPicker) &&
+                  (insuranceType !== 'General' || productsLoading || dynamicProducts.length > 0)) && (
                   <div className="space-y-2">
                     <Label>
                       <div className="flex items-center gap-1">
@@ -1136,11 +1059,11 @@ export function AddPolicyPage() {
                   </div>
                 )}
 
-                {insuranceType === 'General' && generalRiders.length > 0 && (
+                {insuranceType === 'General' && applicableGeneralRiders.length > 0 && (
                   <div className="space-y-3 border rounded-lg p-4">
                     <Label className="font-medium">Riders (Multiple Allowed)</Label>
                     <div className="space-y-4">
-                      {generalRiders.map((rider) => (
+                      {applicableGeneralRiders.map((rider) => (
                         <div key={rider.id} className="border rounded-md p-3">
                           <div className="flex items-center gap-3 mb-3">
                             <input

@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, Response, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from sqlalchemy import or_
 from models import Policy, PolicyCover, PolicyRider, Vehicle, User, Location, CustomField, Company, db
 from datetime import datetime
 from utils.auth import (
@@ -26,6 +27,18 @@ RIDER_FIELDS = [
     'rider_other_pwb', 'rider_adb', 'rider_atpd', 'rider_permanent_disability',
     'rider_critical_illness', 'rider_waiver_of_premium', 'rider_terminal_illness'
 ]
+
+
+def only_approved(query):
+    """Restrict a Policy query to policies that have been approved.
+
+    Legacy rows written before the approval workflow existed have no status,
+    so they are treated as approved.
+    """
+    return query.filter(or_(
+        Policy.approval_status == 'approved',
+        Policy.approval_status.is_(None),
+    ))
 
 
 def parse_covers(data):
@@ -361,6 +374,7 @@ def get_policies():
     query = Policy.query
     current_user = get_current_user()
     query = branch_filter(query, Policy, current_user)
+    query = only_approved(query)
 
     if search:
         query = query.filter(
@@ -419,6 +433,7 @@ def export_policies():
     query = Policy.query
     current_user = get_current_user()
     query = branch_filter(query, Policy, current_user)
+    query = only_approved(query)
     policies = query.all()
 
     output = io.StringIO()
@@ -642,6 +657,17 @@ def create_policy():
         vehicle_id=vehicle_id
     )
 
+    requires_approval = (
+        bool(current_user.requires_policy_approval)
+        and current_user.role != 'central_admin'
+    )
+    if requires_approval:
+        policy.approval_status = 'pending'
+        policy.requested_by = current_user.id
+        policy.requested_by_name = current_user.name or current_user.email
+    else:
+        policy.approval_status = 'approved'
+
     if covers is not None:
         policy.covers = covers_to_models(covers)
 
@@ -690,7 +716,7 @@ def create_policy():
     try:
         db.session.add(policy)
         db.session.commit()
-        logger.info(f"Policy created: {policy.policy_number} by user {current_user.id}")
+        logger.info(f"Policy created: {policy.policy_number} by user {current_user.id} (approval={policy.approval_status})")
         return jsonify(policy.to_dict()), 201
     except Exception as e:
         db.session.rollback()

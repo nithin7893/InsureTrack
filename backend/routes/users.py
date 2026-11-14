@@ -97,7 +97,11 @@ def create_user():
         role=data['role'],
         location=data.get('location', ''),
         location_id=location_id if location_id else None,
-        is_active=True
+        is_active=True,
+        requires_policy_approval=(
+            bool(data.get('requires_policy_approval', False))
+            if data['role'] != 'central_admin' else False
+        ),
     )
     db.session.add(user)
     db.session.commit()
@@ -136,6 +140,8 @@ def update_user(id):
         if data['role'] == 'central_admin' and current_user.role != 'central_admin':
             return jsonify({'error': 'Only central admin can assign central_admin role'}), 403
         user.role = data['role']
+        if user.role == 'central_admin':
+            user.requires_policy_approval = False
     if 'location_id' in data:
         if current_user.role == 'central_admin':
             if data['location_id']:
@@ -149,6 +155,11 @@ def update_user(id):
             user.location = loc.name if loc else ''
     if 'is_active' in data:
         user.is_active = bool(data['is_active'])
+    if 'requires_policy_approval' in data:
+        user.requires_policy_approval = (
+            bool(data['requires_policy_approval'])
+            if user.role != 'central_admin' else False
+        )
     if data.get('password'):
         from routes.auth import validate_password_strength
         pwd_errors = validate_password_strength(data['password'])

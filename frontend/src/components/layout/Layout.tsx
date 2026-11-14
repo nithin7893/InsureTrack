@@ -1,10 +1,22 @@
-import { Outlet } from 'react-router-dom';
+import { Outlet, Link, useLocation } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { Sidebar } from './Sidebar';
 import { useAuth } from '../../hooks/useAuth';
-import { MapPin } from 'lucide-react';
+import { MapPin, Bell } from 'lucide-react';
+import { policyApprovalService } from '../../services/api';
 
 export function Layout() {
   const { user } = useAuth();
+  const location = useLocation();
+  const [pendingApprovals, setPendingApprovals] = useState(0);
+
+  useEffect(() => {
+    if (user?.role !== 'central_admin') {
+      setPendingApprovals(0);
+      return;
+    }
+    policyApprovalService.getPendingCount().then(setPendingApprovals).catch(() => {});
+  }, [user?.role, location.pathname]);
   
   return (
     <div className="flex h-screen bg-background">
@@ -21,6 +33,20 @@ export function Layout() {
             )}
           </div>
           <div className="flex items-center gap-3">
+            {user?.role === 'central_admin' && (
+              <Link
+                to="/policy-approvals"
+                title="Policy approval notifications"
+                className="relative inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <Bell className="h-5 w-5" />
+                {pendingApprovals > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 inline-flex min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
+                    {pendingApprovals > 99 ? '99+' : pendingApprovals}
+                  </span>
+                )}
+              </Link>
+            )}
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-medium">
               {user?.name?.charAt(0) || 'U'}
             </div>

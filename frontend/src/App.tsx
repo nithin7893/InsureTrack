@@ -15,6 +15,7 @@ import { FieldMembersManagement } from './pages/FieldMembers';
 import { AlertsPage } from './pages/Alerts';
 import { GeneralRidersPage } from './pages/GeneralRiders';
 import { CustomFields } from './pages/CustomFields';
+import { PolicyApprovalsPage } from './pages/PolicyApprovals';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -109,6 +110,9 @@ function AppRoutes() {
         } />
         <Route path="custom-fields" element={
           <CentralAdminRoute><CustomFields /></CentralAdminRoute>
+        } />
+        <Route path="policy-approvals" element={
+          <CentralAdminRoute><PolicyApprovalsPage /></CentralAdminRoute>
         } />
       </Route>
     </Routes>

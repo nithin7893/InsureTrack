@@ -252,6 +252,7 @@ def create_app():
     from routes.alerts import alerts_bp
     from routes.general_riders import general_riders_bp
     from routes.custom_fields import custom_fields_bp
+    from routes.policy_approvals import policy_approvals_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(policies_bp, url_prefix='/api/policies')
@@ -264,6 +265,7 @@ def create_app():
     app.register_blueprint(alerts_bp, url_prefix='/api/alerts')
     app.register_blueprint(general_riders_bp, url_prefix='/api/general-riders')
     app.register_blueprint(custom_fields_bp, url_prefix='/api/custom-fields')
+    app.register_blueprint(policy_approvals_bp, url_prefix='/api/policy-approvals')
 
     # --- DB Init & Migration ---
     with app.app_context():
@@ -341,6 +343,14 @@ def migrate_schema():
         ('policies', 'custom_values', 'JSON'),
         ('policies', 'product_category', 'VARCHAR(100)'),
         ('custom_fields', 'product_category', 'VARCHAR(100)'),
+        ('users', 'requires_policy_approval', 'BOOLEAN'),
+        ('policies', 'approval_status', 'VARCHAR(20)'),
+        ('policies', 'requested_by', 'INTEGER'),
+        ('policies', 'requested_by_name', 'VARCHAR(255)'),
+        ('policies', 'approved_by', 'INTEGER'),
+        ('policies', 'approved_by_name', 'VARCHAR(255)'),
+        ('policies', 'approved_at', 'DATETIME'),
+        ('general_riders', 'product_names', 'JSON'),
     ]
 
     for table, column, col_type in new_columns:
@@ -447,6 +457,15 @@ def migrate_schema():
                     sa.text("UPDATE users SET role = :new_role WHERE id = :id"),
                     {'new_role': new_role, 'id': row[0]}
                 )
+
+            # Policies and users created before the approval workflow existed
+            # are treated as already approved / not requiring approval.
+            db.session.execute(
+                sa.text("UPDATE policies SET approval_status = 'approved' WHERE approval_status IS NULL")
+            )
+            db.session.execute(
+                sa.text("UPDATE users SET requires_policy_approval = 0 WHERE requires_policy_approval IS NULL")
+            )
 
             db.session.commit()
         except Exception as e:

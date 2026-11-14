@@ -104,6 +104,9 @@ class User(db.Model):
     location = db.Column(db.String(255))
     location_id = db.Column(db.Integer, db.ForeignKey('locations.id', ondelete='SET NULL'), nullable=True, index=True)
     is_active = db.Column(db.Boolean, default=True)
+    # When enabled, policies created by this user are held for central admin
+    # approval before they appear in the policies list.
+    requires_policy_approval = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
 
     VALID_ROLES = {'central_admin', 'branch_admin', 'agent'}
@@ -122,6 +125,7 @@ class User(db.Model):
             'location': loc_name,
             'location_id': self.location_id,
             'is_active': self.is_active,
+            'requires_policy_approval': bool(self.requires_policy_approval),
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
@@ -179,6 +183,7 @@ class Policy(db.Model):
         Index('ix_policy_agent', 'agent_name'),
         Index('ix_policy_dates', 'start_date', 'end_date'),
         Index('ix_policy_created', 'created_at'),
+        Index('ix_policy_approval', 'approval_status'),
     )
 
     id = db.Column(db.Integer, primary_key=True)
@@ -222,6 +227,14 @@ class Policy(db.Model):
     location_id = db.Column(db.Integer, db.ForeignKey('locations.id', ondelete='SET NULL'), nullable=True, index=True)
     vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id', ondelete='SET NULL'), nullable=True)
     custom_values = db.Column(db.JSON)
+    # 'approved' policies appear in the policies list. Policies created by a
+    # user who requires approval start as 'pending' until a central admin acts.
+    approval_status = db.Column(db.String(20), default='approved')
+    requested_by = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    requested_by_name = db.Column(db.String(255))
+    approved_by = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    approved_by_name = db.Column(db.String(255))
+    approved_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
 
     vehicle = db.relationship('Vehicle', backref=db.backref('policies', lazy='dynamic'))
@@ -290,6 +303,12 @@ class Policy(db.Model):
             'covers': [c.to_dict() for c in self.covers],
             'riders': [r.to_dict() for r in self.riders],
             'custom_values': self.custom_values or {},
+            'approval_status': self.approval_status or 'approved',
+            'requested_by': self.requested_by,
+            'requested_by_name': self.requested_by_name,
+            'approved_by': self.approved_by,
+            'approved_by_name': self.approved_by_name,
+            'approved_at': self.approved_at.isoformat() if self.approved_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
@@ -336,6 +355,9 @@ class GeneralRider(db.Model):
     name = db.Column(db.String(255), nullable=False)
     description = db.Column(db.String(500))
     category = db.Column(db.String(100), nullable=False)
+    # Optional list of ProductMaster.product_name values this rider is limited
+    # to. An empty list means the rider applies to every product in its category.
+    product_names = db.Column(db.JSON)
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
 
@@ -345,6 +367,7 @@ class GeneralRider(db.Model):
             'name': self.name,
             'description': self.description,
             'category': self.category,
+            'product_names': self.product_names or [],
             'is_active': self.is_active,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }

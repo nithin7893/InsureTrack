@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import {
   LayoutDashboard, 
   PlusCircle, 
@@ -12,10 +13,12 @@ import {
   Package,
   UserCheck,
   Bell,
-  FormInput
+  FormInput,
+  ClipboardCheck
 } from 'lucide-react';
 import { cn } from '../../utils';
 import { useAuth } from '../../hooks/useAuth';
+import { policyApprovalService } from '../../services/api';
 
 const navItems = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -36,12 +39,22 @@ const adminItems = [
 const centralAdminItems = [
   { path: '/users', label: 'Users', icon: Users },
   { path: '/custom-fields', label: 'Custom Fields', icon: FormInput },
+  { path: '/policy-approvals', label: 'Policy Approvals', icon: ClipboardCheck },
 ];
 
 export function Sidebar() {
   const location = useLocation();
   const { logout, user } = useAuth();
   const isAdmin = user?.role === 'central_admin' || user?.role === 'branch_admin';
+  const [pendingApprovals, setPendingApprovals] = useState(0);
+
+  useEffect(() => {
+    if (user?.role !== 'central_admin') {
+      setPendingApprovals(0);
+      return;
+    }
+    policyApprovalService.getPendingCount().then(setPendingApprovals).catch(() => {});
+  }, [user?.role, location.pathname]);
 
   return (
     <div className="flex h-full w-64 flex-col border-r border-border bg-card">
@@ -118,6 +131,11 @@ export function Sidebar() {
                     >
                       <Icon className="h-5 w-5" />
                       {item.label}
+                      {item.path === '/policy-approvals' && pendingApprovals > 0 && (
+                        <span className="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-xs font-semibold text-white">
+                          {pendingApprovals > 99 ? '99+' : pendingApprovals}
+                        </span>
+                      )}
                     </Link>
                   );
                 })}

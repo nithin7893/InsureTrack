@@ -22,6 +22,7 @@ export function UsersManagement() {
     name: '', 
     role: 'agent',
     location_id: undefined,
+    requires_policy_approval: false,
   });
 
   useEffect(() => {
@@ -53,6 +54,7 @@ export function UsersManagement() {
           name: formData.name, 
           role: formData.role,
           location_id: formData.location_id || null,
+          requires_policy_approval: formData.role === 'central_admin' ? false : !!formData.requires_policy_approval,
         };
         if (formData.password) updateData.password = formData.password;
         await userService.updateUser(editingUser.id, updateData);
@@ -66,7 +68,7 @@ export function UsersManagement() {
       }
       setIsModalOpen(false);
       setEditingUser(null);
-      setFormData({ email: '', password: '', name: '', role: 'agent', location_id: undefined });
+      setFormData({ email: '', password: '', name: '', role: 'agent', location_id: undefined, requires_policy_approval: false });
       loadUsers();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to save user');
@@ -77,7 +79,7 @@ export function UsersManagement() {
 
   const handleEdit = (user: User) => {
     setEditingUser(user);
-    setFormData({ email: user.email, password: '', name: user.name, role: user.role as UserFormData['role'], location_id: user.location_id });
+    setFormData({ email: user.email, password: '', name: user.name, role: user.role as UserFormData['role'], location_id: user.location_id, requires_policy_approval: !!user.requires_policy_approval });
     setIsModalOpen(true);
   };
 
@@ -96,7 +98,7 @@ export function UsersManagement() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">User Management</h1>
-        <Button onClick={() => { setIsModalOpen(true); setEditingUser(null); setFormData({ email: '', password: '', name: '', role: 'agent', location_id: undefined }); }}>
+        <Button onClick={() => { setIsModalOpen(true); setEditingUser(null); setFormData({ email: '', password: '', name: '', role: 'agent', location_id: undefined, requires_policy_approval: false }); }}>
           <Plus className="mr-2 h-4 w-4" />
           Add User
         </Button>
@@ -127,6 +129,7 @@ export function UsersManagement() {
                 <th className="px-4 py-3 text-left text-sm font-medium">Email</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Location</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Role</th>
+                <th className="px-4 py-3 text-left text-sm font-medium">Policy Approval</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Status</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Actions</th>
               </tr>
@@ -168,6 +171,15 @@ export function UsersManagement() {
                        user.role === 'central_admin' ? 'Central Admin' : 
                        'Agent'}
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {user.role !== 'central_admin' && user.requires_policy_approval ? (
+                      <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700">
+                        Approval required
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Not required</span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
@@ -273,6 +285,24 @@ export function UsersManagement() {
                   ))}
                 </Select>
               </div>
+              )}
+              {formData.role !== 'central_admin' && (
+                <div className="rounded-lg border border-border bg-muted/30 p-3">
+                  <label className="flex cursor-pointer items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={!!formData.requires_policy_approval}
+                      onChange={e => setFormData({ ...formData, requires_policy_approval: e.target.checked })}
+                      className="mt-0.5 rounded border-input"
+                    />
+                    <span className="text-sm">
+                      <span className="font-medium">Require central admin approval for policies</span>
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        Policies created by this user will be sent to central admin for approval before they appear in the policies list.
+                      </span>
+                    </span>
+                  </label>
+                </div>
               )}
               <div className="flex gap-2 pt-4">
                 <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)} className="flex-1">

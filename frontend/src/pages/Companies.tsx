@@ -9,13 +9,15 @@ import { Select } from '../components/ui/select';
 import { Toast } from '../components/ui/toast';
 import type { Company, CompanyFormData } from '../types';
 
+const INSURANCE_TYPES = ['Life', 'Health', 'General'] as const;
+
 export function Companies() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [insuranceTypes, setInsuranceTypes] = useState<string[]>([]);
   const [filterType, setFilterType] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
-  const [formData, setFormData] = useState<CompanyFormData>({ name: '', insurance_type: '' });
+  const [formData, setFormData] = useState<CompanyFormData>({ name: '', insurance_types: [] });
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -44,18 +46,32 @@ export function Companies() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const selectedTypes = formData.insurance_types || [];
+    if (selectedTypes.length === 0) {
+      setToast({ message: 'Select at least one insurance category', type: 'error' });
+      return;
+    }
     setLoading(true);
     try {
       if (editingCompany) {
-        await companyService.updateCompany(editingCompany.id, formData);
+        await companyService.updateCompany(editingCompany.id, {
+          name: formData.name,
+          insurance_type: selectedTypes[0],
+        });
         setToast({ message: 'Company updated successfully!', type: 'success' });
       } else {
-        await companyService.createCompany(formData);
-        setToast({ message: 'Company added successfully!', type: 'success' });
+        const result = await companyService.createCompany({
+          name: formData.name,
+          insurance_types: selectedTypes,
+        });
+        const skipped = result.skipped.length > 0
+          ? ` Already existed for: ${result.skipped.join(', ')}.`
+          : '';
+        setToast({ message: `Company added successfully!${skipped}`, type: 'success' });
       }
       setIsModalOpen(false);
       setEditingCompany(null);
-      setFormData({ name: '', insurance_type: '' });
+      setFormData({ name: '', insurance_types: [] });
       loadCompanies();
       loadTypes();
     } catch (err: any) {
@@ -65,9 +81,21 @@ export function Companies() {
     }
   };
 
+  const toggleInsuranceType = (type: string) => {
+    setFormData(prev => {
+      const selected = prev.insurance_types || [];
+      return {
+        ...prev,
+        insurance_types: selected.includes(type)
+          ? selected.filter(t => t !== type)
+          : [...selected, type],
+      };
+    });
+  };
+
   const handleEdit = (company: Company) => {
     setEditingCompany(company);
-    setFormData({ name: company.name, insurance_type: company.insurance_type });
+    setFormData({ name: company.name, insurance_types: [company.insurance_type] });
     setIsModalOpen(true);
   };
 
@@ -87,7 +115,7 @@ export function Companies() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Insurance Companies</h1>
-        <Button onClick={() => { setIsModalOpen(true); setEditingCompany(null); setFormData({ name: '', insurance_type: '' }); }}>
+        <Button onClick={() => { setIsModalOpen(true); setEditingCompany(null); setFormData({ name: '', insurance_types: [] }); }}>
           <Plus className="mr-2 h-4 w-4" />
           Add Company
         </Button>
@@ -165,15 +193,47 @@ export function Companies() {
                   required
                 />
               </div>
-              <div>
-                <Label htmlFor="insurance_type">Insurance Type</Label>
-                <Select value={formData.insurance_type} onChange={e => setFormData({ ...formData, insurance_type: e.target.value })}>
-                  <option value="">Select type</option>
-                  <option value="Life">Life</option>
-                  <option value="Health">Health</option>
-                  <option value="General">General</option>
-                </Select>
-              </div>
+              {editingCompany ? (
+                <div>
+                  <Label htmlFor="insurance_type">Insurance Category</Label>
+                  <Select
+                    id="insurance_type"
+                    value={formData.insurance_types?.[0] || ''}
+                    onChange={e => setFormData({ ...formData, insurance_types: [e.target.value] })}
+                  >
+                    <option value="">Select category</option>
+                    {INSURANCE_TYPES.map(type => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </Select>
+                </div>
+              ) : (
+                <div>
+                  <Label>Insurance Categories</Label>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    {INSURANCE_TYPES.map(type => {
+                      const checked = formData.insurance_types?.includes(type) || false;
+                      return (
+                        <label
+                          key={type}
+                          className={`flex cursor-pointer items-center gap-2 rounded-md border p-2 transition-colors hover:bg-muted/50 ${checked ? 'border-primary bg-primary/5' : 'border-border'}`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4"
+                            checked={checked}
+                            onChange={() => toggleInsuranceType(type)}
+                          />
+                          <span className="text-sm">{type}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Select one or more categories. The company is added to each selected category.
+                  </p>
+                </div>
+              )}
               <div className="flex gap-2 pt-4">
                 <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)} className="flex-1">
                   Cancel

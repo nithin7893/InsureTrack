@@ -3,6 +3,7 @@ from flask_jwt_extended import jwt_required
 from models import Policy, Company, db
 from sqlalchemy import func, case, extract
 from utils.auth import get_current_user, branch_filter
+from routes.policies import only_approved
 import logging
 
 analytics_bp = Blueprint('analytics', __name__)
@@ -36,6 +37,7 @@ def get_summary():
 
     base_query = Policy.query
     base_query = branch_filter(base_query, Policy, current_user)
+    base_query = only_approved(base_query)
 
     total_policies = base_query.count()
 
@@ -71,6 +73,7 @@ def get_premium_by_type():
 
     base_query = Policy.query
     base_query = branch_filter(base_query, Policy, current_user)
+    base_query = only_approved(base_query)
 
     results = base_query.with_entities(
         Policy.insurance_type,
@@ -97,6 +100,7 @@ def get_monthly_revenue():
 
     base_query = Policy.query
     base_query = branch_filter(base_query, Policy, current_user)
+    base_query = only_approved(base_query)
 
     is_sqlite = 'sqlite' in str(db.engine.url)
 
@@ -130,6 +134,7 @@ def get_premium_by_company():
 
     base_query = Policy.query
     base_query = branch_filter(base_query, Policy, current_user)
+    base_query = only_approved(base_query)
 
     results = base_query.with_entities(
         Policy.company,
@@ -163,6 +168,7 @@ def get_premium_by_branch():
 
     base_query = Policy.query
     base_query = branch_filter(base_query, Policy, current_user)
+    base_query = only_approved(base_query)
 
     results = base_query.with_entities(
         Policy.location,
@@ -189,6 +195,7 @@ def get_premium_by_mode():
 
     base_query = Policy.query
     base_query = branch_filter(base_query, Policy, current_user)
+    base_query = only_approved(base_query)
 
     results = base_query.with_entities(
         Policy.premium_mode,
@@ -215,6 +222,7 @@ def get_agent_performance():
 
     base_query = Policy.query
     base_query = branch_filter(base_query, Policy, current_user)
+    base_query = only_approved(base_query)
 
     results = base_query.with_entities(
         Policy.agent_name,

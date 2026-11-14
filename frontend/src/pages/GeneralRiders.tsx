@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Shield, Plus, Pencil, X, Trash2 } from 'lucide-react';
-import { generalRiderService } from '../services/api';
+import { generalRiderService, productService } from '../services/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Card } from '../components/ui/card';
 import { Label } from '../components/ui/label';
 import { Select } from '../components/ui/select';
-import type { GeneralRider } from '../types';
+import { GENERAL_SUB_CATEGORIES } from '../constants/insurance';
+import type { GeneralRider, ProductMaster } from '../types';
 
 const GENERAL_CATEGORIES = [
   'Engineering', 'Fire', 'Health', 'Liability',
@@ -19,10 +20,13 @@ export function GeneralRidersPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingRider, setEditingRider] = useState<GeneralRider | null>(null);
   const [filterCategory, setFilterCategory] = useState('');
+  const [products, setProducts] = useState<ProductMaster[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     category: '',
+    product_names: [] as string[],
   });
   const [error, setError] = useState('');
 
@@ -41,6 +45,32 @@ export function GeneralRidersPage() {
   useEffect(() => {
     loadRiders();
   }, [filterCategory]);
+
+  useEffect(() => {
+    if (!showForm) {
+      setProducts([]);
+      return;
+    }
+    let cancelled = false;
+    setProductsLoading(true);
+    productService
+      .getProducts({
+        insurance_type: 'General',
+        category: formData.category || undefined,
+      })
+      .then(data => {
+        if (!cancelled) setProducts(data);
+      })
+      .catch(() => {
+        if (!cancelled) setProducts([]);
+      })
+      .finally(() => {
+        if (!cancelled) setProductsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showForm, formData.category]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,7 +93,7 @@ export function GeneralRidersPage() {
       }
       setShowForm(false);
       setEditingRider(null);
-      setFormData({ name: '', description: '', category: '' });
+      setFormData({ name: '', description: '', category: '', product_names: [] });
       loadRiders();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to save rider');
@@ -76,6 +106,7 @@ export function GeneralRidersPage() {
       name: rider.name,
       description: rider.description || '',
       category: rider.category,
+      product_names: rider.product_names || [],
     });
     setShowForm(true);
   };
@@ -107,6 +138,37 @@ export function GeneralRidersPage() {
     return acc;
   }, {} as Record<string, GeneralRider[]>);
 
+  const productOptions = Array.from(
+    new Map(products.map(product => [product.product_name, product])).values()
+  );
+
+  // General policies fall back to the standard sub-category as their "product"
+  // when Product Management has no product configured for the category (see
+  // AddPolicy/EditPolicy). Offer both real product names and the standard
+  // sub-categories so a rider can be scoped in either case.
+  const configuredProductNames = productOptions.map(product => product.product_name);
+  const subCategoryOptions = formData.category ? (GENERAL_SUB_CATEGORIES[formData.category] || []) : [];
+  const selectableProducts = [
+    ...productOptions.map(product => ({
+      key: product.product_name,
+      label: product.product_name,
+      hint: product.sub_category || '',
+    })),
+    ...subCategoryOptions
+      .filter(name => !configuredProductNames.includes(name))
+      .map(name => ({ key: name, label: name, hint: 'standard sub-category' })),
+  ];
+  const hasConfiguredProducts = productOptions.length > 0;
+
+  const toggleProduct = (productName: string) => {
+    setFormData(prev => ({
+      ...prev,
+      product_names: prev.product_names.includes(productName)
+        ? prev.product_names.filter(name => name !== productName)
+        : [...prev.product_names, productName],
+    }));
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -114,7 +176,7 @@ export function GeneralRidersPage() {
           <h1 className="text-2xl font-bold">General Insurance Riders</h1>
           <p className="text-muted-foreground">Manage riders available for general insurance policies</p>
         </div>
-        <Button onClick={() => { setShowForm(true); setEditingRider(null); setFormData({ name: '', description: '', category: '' }); }}>
+        <Button onClick={() => { setShowForm(true); setEditingRider(null); setFormData({ name: '', description: '', category: '', product_names: [] }); }}>
           <Plus className="h-4 w-4 mr-2" />
           Add Rider
         </Button>
@@ -159,7 +221,7 @@ export function GeneralRidersPage() {
                 <Label>Category *</Label>
                 <Select
                   value={formData.category}
-                  onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
+                  onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value, product_names: [] }))}
                 >
                   <option value="">Select Category</option>
                   {GENERAL_CATEGORIES.map((cat) => (
@@ -167,6 +229,73 @@ export function GeneralRidersPage() {
                   ))}
                 </Select>
               </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Specific Products (Optional)</Label>
+                {formData.product_names.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-xs text-primary hover:underline"
+                    onClick={() => setFormData(prev => ({ ...prev, product_names: [] }))}
+                  >
+                    Clear selection
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Tick the products this rider is available for. Leave all unticked to make it
+                available for every product in the selected category.
+              </p>
+              {!formData.category ? (
+                <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                  Select a category to choose specific products.
+                </div>
+              ) : productsLoading ? (
+                <div className="rounded-lg border p-3 text-sm text-muted-foreground">
+                  Loading products...
+                </div>
+              ) : selectableProducts.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                  No products configured for this category. This rider will apply to all products in {formData.category}.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {!hasConfiguredProducts && (
+                    <p className="text-xs text-muted-foreground">
+                      No products are configured in Product Management for {formData.category}.
+                      Pick from the standard {formData.category} sub-categories below, or leave
+                      all unticked to apply the rider to every product.
+                    </p>
+                  )}
+                  <div className="max-h-56 space-y-2 overflow-y-auto rounded-lg border p-3">
+                    {selectableProducts.map(product => (
+                      <label key={product.key} className="flex cursor-pointer items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={formData.product_names.includes(product.key)}
+                          onChange={() => toggleProduct(product.key)}
+                          className="mt-0.5 h-4 w-4 rounded border-input"
+                        />
+                        <span className="text-sm">
+                          {product.label}
+                          {product.hint && (
+                            <span className="ml-1 text-xs text-muted-foreground">
+                              ({product.hint})
+                            </span>
+                          )}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {formData.product_names.length > 0 && (
+                <p className="text-xs text-primary">
+                  This rider will only be offered for {formData.product_names.length} selected
+                  product{formData.product_names.length === 1 ? '' : 's'}.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label>Description (Optional)</Label>
@@ -199,7 +328,7 @@ export function GeneralRidersPage() {
           <p className="text-muted-foreground mb-4">
             {filterCategory ? `No riders found for ${filterCategory} category` : 'No general riders have been added yet'}
           </p>
-          <Button onClick={() => { setShowForm(true); setEditingRider(null); setFormData({ name: '', description: '', category: filterCategory }); }}>
+          <Button onClick={() => { setShowForm(true); setEditingRider(null); setFormData({ name: '', description: '', category: filterCategory, product_names: [] }); }}>
             <Plus className="h-4 w-4 mr-2" />
             Add First Rider
           </Button>
@@ -223,6 +352,23 @@ export function GeneralRidersPage() {
                         {rider.description && (
                           <p className="text-sm text-muted-foreground mt-1">{rider.description}</p>
                         )}
+                        <div className="mt-2 flex flex-wrap items-center gap-1">
+                          <span className="text-xs text-muted-foreground">Products:</span>
+                          {rider.product_names && rider.product_names.length > 0 ? (
+                            rider.product_names.map(productName => (
+                              <span
+                                key={productName}
+                                className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary"
+                              >
+                                {productName}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              All products in {rider.category}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <Button

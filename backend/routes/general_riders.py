@@ -1,11 +1,61 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import GeneralRider, PolicyRider, db
+from models import GeneralRider, ProductMaster, PolicyRider, db
 from utils.auth import get_current_user
+from utils.general_catalogue import GENERAL_SUB_CATEGORY_NAMES
 import logging
 
 general_riders_bp = Blueprint('general_riders', __name__)
 logger = logging.getLogger(__name__)
+
+MAX_PRODUCTS_PER_RIDER = 200
+
+
+def parse_product_names(data):
+    """Validate the optional product_names list from a rider payload.
+
+    Returns None when the key is absent so callers can skip the update.
+    """
+    if 'product_names' not in data:
+        return None
+    raw = data.get('product_names')
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError('product_names must be a list')
+
+    cleaned = []
+    for value in raw:
+        if not isinstance(value, str):
+            raise ValueError('Each product name must be text')
+        name = value.strip()
+        if not name:
+            continue
+        if len(name) > 100:
+            raise ValueError('Product name is too long')
+        if name not in cleaned:
+            cleaned.append(name)
+
+    if len(cleaned) > MAX_PRODUCTS_PER_RIDER:
+        raise ValueError(f'A rider can be linked to at most {MAX_PRODUCTS_PER_RIDER} products')
+
+    if cleaned:
+        known = {
+            row.product_name
+            for row in ProductMaster.query.filter(
+                ProductMaster.insurance_type == 'General',
+                ProductMaster.product_name.in_(cleaned),
+            ).all()
+        }
+        unknown = [
+            name
+            for name in cleaned
+            if name not in known and name not in GENERAL_SUB_CATEGORY_NAMES
+        ]
+        if unknown:
+            raise ValueError(f"Unknown product or sub-category: {', '.join(unknown[:5])}")
+
+    return cleaned
 
 
 @general_riders_bp.route('', methods=['GET'])
@@ -13,6 +63,7 @@ logger = logging.getLogger(__name__)
 def get_general_riders():
     """Get all general riders, optionally filtered by category."""
     category = request.args.get('category', '')
+    product = request.args.get('product', '').strip()
     show_inactive = request.args.get('show_inactive', 'false').lower() == 'true'
     
     query = GeneralRider.query
@@ -22,6 +73,15 @@ def get_general_riders():
         query = query.filter_by(category=category)
     
     riders = query.order_by(GeneralRider.category, GeneralRider.name).all()
+
+    # Product-scoped riders only apply to the selected product; riders with no
+    # product mapping apply to every product in their category.
+    if product:
+        riders = [
+            r for r in riders
+            if not r.product_names or product in r.product_names
+        ]
+
     return jsonify([r.to_dict() for r in riders]), 200
 
 
@@ -45,11 +105,17 @@ def create_general_rider():
         return jsonify({'error': 'Name is required'}), 400
     if not category:
         return jsonify({'error': 'Category is required'}), 400
+
+    try:
+        product_names = parse_product_names(data) or []
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     
     rider = GeneralRider(
         name=name[:255],
         description=description[:500] if description else None,
-        category=category[:100]
+        category=category[:100],
+        product_names=product_names,
     )
     
     try:
@@ -85,6 +151,12 @@ def update_general_rider(id):
         rider.description = str(data['description']).strip()[:500] if data['description'] else None
     if 'category' in data:
         rider.category = str(data['category']).strip()[:100]
+    try:
+        product_names = parse_product_names(data)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    if product_names is not None:
+        rider.product_names = product_names
     if 'is_active' in data:
         rider.is_active = bool(data['is_active'])
     

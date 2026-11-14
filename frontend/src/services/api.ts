@@ -178,6 +178,24 @@ export const policyService = {
   },
 };
 
+export const policyApprovalService = {
+  getPendingApprovals: async (): Promise<Policy[]> => {
+    const response = await api.get('/api/policy-approvals');
+    return response.data;
+  },
+  getPendingCount: async (): Promise<number> => {
+    const response = await api.get('/api/policy-approvals/pending-count');
+    return response.data.count;
+  },
+  approvePolicy: async (id: number): Promise<Policy> => {
+    const response = await api.put(`/api/policy-approvals/${id}/approve`);
+    return response.data;
+  },
+  rejectPolicy: async (id: number): Promise<void> => {
+    await api.put(`/api/policy-approvals/${id}/reject`);
+  },
+};
+
 export const analyticsService = {
   getSummary: async (): Promise<SummaryData> => {
     const response = await api.get('/api/analytics/summary');
@@ -217,9 +235,12 @@ export const companyService = {
     const response = await api.get('/api/companies', { params });
     return response.data;
   },
-  createCompany: async (data: CompanyFormData): Promise<Company> => {
+  createCompany: async (data: CompanyFormData): Promise<{ companies: Company[]; skipped: string[] }> => {
     const response = await api.post('/api/companies', data);
-    return response.data;
+    if (Array.isArray(response.data?.companies)) {
+      return { companies: response.data.companies, skipped: response.data.skipped || [] };
+    }
+    return { companies: [response.data], skipped: [] };
   },
   updateCompany: async (id: number, data: Partial<CompanyFormData>): Promise<Company> => {
     const response = await api.put(`/api/companies/${id}`, data);
@@ -365,13 +386,14 @@ export interface GeneralRider {
 }
 
 export const generalRiderService = {
-  getGeneralRiders: async (category?: string): Promise<GeneralRider[]> => {
+  getGeneralRiders: async (category?: string, product?: string): Promise<GeneralRider[]> => {
     const params: any = {};
     if (category) params.category = category;
+    if (product) params.product = product;
     const response = await api.get('/api/general-riders', { params });
     return response.data;
   },
-  createGeneralRider: async (data: { name: string; description?: string; category: string }): Promise<GeneralRider> => {
+  createGeneralRider: async (data: { name: string; description?: string; category: string; product_names?: string[] }): Promise<GeneralRider> => {
     const response = await api.post('/api/general-riders', data);
     return response.data;
   },
